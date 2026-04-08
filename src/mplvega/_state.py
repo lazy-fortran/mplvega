@@ -44,6 +44,22 @@ def _standalone_html(spec: dict[str, Any]) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
+  <style>
+    html, body {{
+      height: 100%;
+      margin: 0;
+    }}
+    body {{
+      background: white;
+      overflow: hidden;
+    }}
+    #vis,
+    #vis .vega-embed,
+    #vis .vega-embed > div {{
+      height: 100%;
+      width: 100%;
+    }}
+  </style>
   <script src="{VEGA_JS}"></script>
   <script src="{VEGA_LITE_JS}"></script>
   <script src="{VEGA_EMBED_JS}"></script>
@@ -52,7 +68,11 @@ def _standalone_html(spec: dict[str, Any]) -> str:
   <div id="vis"></div>
   <script>
     const spec = {spec_json};
-    vegaEmbed("#vis", spec, {{actions: true}});
+    const embeddedSpec = JSON.parse(JSON.stringify(spec));
+    embeddedSpec.autosize = {{type: "fit", contains: "padding", resize: true}};
+    embeddedSpec.width = "container";
+    embeddedSpec.height = "container";
+    vegaEmbed("#vis", embeddedSpec, {{actions: false, renderer: "svg"}});
   </script>
 </body>
 </html>
@@ -140,6 +160,28 @@ class MplVegaState:
             channel["scale"] = scale
         return channel
 
+    def _values_for_layer(self, layer: dict[str, Any]) -> list[dict[str, Any]]:
+        """Attach shared per-layer metadata directly to row values."""
+        values: list[dict[str, Any]] = []
+        label = layer.get("label")
+        for point in layer["values"]:
+            entry = dict(point)
+            if label:
+                entry["series"] = label
+            values.append(entry)
+        return values
+
+    def _color_encoding(self, layer: dict[str, Any]) -> dict[str, Any] | None:
+        """Emit a proper nominal series encoding when a label is present."""
+        label = layer.get("label")
+        if not label:
+            return None
+        return {
+            "field": "series",
+            "type": "nominal",
+            "legend": {"title": None},
+        }
+
     def to_spec(self) -> dict[str, Any]:
         x_enc = self._channel("x", self._xlabel, self._xlim, self._xscale)
         y_enc = self._channel("y", self._ylabel, self._ylim, self._yscale)
@@ -160,11 +202,12 @@ class MplVegaState:
 
         if len(self._layers) == 1 and not has_field_layer:
             layer = self._layers[0]
-            spec["data"] = {"values": layer["values"]}
+            spec["data"] = {"values": self._values_for_layer(layer)}
             spec["mark"] = layer["mark"]
             encoding: dict[str, Any] = {"x": x_enc, "y": y_enc}
-            if "label" in layer:
-                encoding["color"] = {"value": layer["label"]}
+            color = self._color_encoding(layer)
+            if color is not None:
+                encoding["color"] = color
             spec["encoding"] = encoding
             return spec
 
@@ -175,18 +218,20 @@ class MplVegaState:
                     "mark": layer["mark"],
                     "fortplotField": layer["fortplotField"],
                 }
-                if "label" in layer:
-                    entry["encoding"] = {"color": {"value": layer["label"]}}
+                color = self._color_encoding(layer)
+                if color is not None:
+                    entry["encoding"] = {"color": color}
                 layers.append(entry)
                 continue
 
             encoding = {"x": x_enc, "y": y_enc}
-            if "label" in layer:
-                encoding["color"] = {"value": layer["label"]}
+            color = self._color_encoding(layer)
+            if color is not None:
+                encoding["color"] = color
             layers.append({
                 "mark": layer["mark"],
                 "encoding": encoding,
-                "data": {"values": layer["values"]},
+                "data": {"values": self._values_for_layer(layer)},
             })
 
         spec["encoding"] = {"x": x_enc, "y": y_enc}

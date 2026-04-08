@@ -247,9 +247,6 @@ def write_example_pages(docs_source_root: Path, pages: Iterable[ExamplePage]) ->
             "",
             f"Source file: ``examples/python/{page.slug}/{page.script_name}``",
             "",
-            ".. contents:: On This Page",
-            "   :local:",
-            "",
         ]
         for figure in page.figures:
             parts.extend(
