@@ -19,6 +19,35 @@ VEGA_JS = "https://cdn.jsdelivr.net/npm/vega@5"
 VEGA_LITE_JS = "https://cdn.jsdelivr.net/npm/vega-lite@5"
 VEGA_EMBED_JS = "https://cdn.jsdelivr.net/npm/vega-embed@6"
 _FORTPLOT_ONLY_MARKS = {"contour", "contour_filled", "pcolormesh", "streamplot"}
+_MPL_COLORS = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+]
+_MPL_FONT = "DejaVu Sans, Arial, sans-serif"
+_MPL_GRID = "#b0b0b0"
+
+
+def _points_to_pixels(points: float, dpi: float) -> float:
+    """Convert matplotlib point units into rendered pixels."""
+    return float(points) * float(dpi) / 72.0
+
+
+def _mpl_padding(width: int, height: int) -> dict[str, int]:
+    """Convert matplotlib default subplot fractions into pixel padding."""
+    return {
+        "left": int(round(width * 0.125)),
+        "right": int(round(width * (1.0 - 0.9))),
+        "bottom": int(round(height * 0.11)),
+        "top": int(round(height * (1.0 - 0.88))),
+    }
 
 
 def _to_list(seq: Any) -> list[float | None]:
@@ -37,8 +66,11 @@ def _to_list(seq: Any) -> list[float | None]:
 
 def _standalone_html(spec: dict[str, Any]) -> str:
     """Build one self-contained HTML page that renders the spec via Vega-Embed."""
-    spec_json = json.dumps(_browser_spec(spec), indent=2, allow_nan=False)
-    title = spec.get("title") or "mplvega figure"
+    browser_spec = _browser_spec(spec)
+    spec_json = json.dumps(browser_spec, indent=2, allow_nan=False)
+    title = browser_spec.get("title") or "mplvega figure"
+    width = int(browser_spec.get("width", 640))
+    height = int(browser_spec.get("height", 480))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -47,18 +79,25 @@ def _standalone_html(spec: dict[str, Any]) -> str:
   <title>{title}</title>
   <style>
     html, body {{
-      height: 100%;
       margin: 0;
     }}
     body {{
       background: white;
-      overflow: hidden;
+      display: grid;
+      min-height: 100vh;
+      overflow: auto;
+      place-items: center;
+      padding: 1rem;
+    }}
+    #vis {{
+      height: {height}px;
+      width: {width}px;
     }}
     #vis,
     #vis .vega-embed,
     #vis .vega-embed > div {{
-      height: 100%;
       width: 100%;
+      height: 100%;
     }}
   </style>
   <script src="{VEGA_JS}"></script>
@@ -69,11 +108,7 @@ def _standalone_html(spec: dict[str, Any]) -> str:
   <div id="vis"></div>
   <script>
     const spec = {spec_json};
-    const embeddedSpec = JSON.parse(JSON.stringify(spec));
-    embeddedSpec.autosize = {{type: "fit", contains: "padding", resize: true}};
-    embeddedSpec.width = "container";
-    embeddedSpec.height = "container";
-    vegaEmbed("#vis", embeddedSpec, {{
+    vegaEmbed("#vis", spec, {{
       actions: {{editor: true, export: false, source: false, compiled: false}},
       renderer: "svg"
     }});
@@ -130,10 +165,64 @@ def _copy_json(value: Any) -> Any:
     return json.loads(json.dumps(value))
 
 
+def _spec_config(legend_orient: str, dpi: float) -> dict[str, Any]:
+    """Return explicit Vega-Lite config that mirrors matplotlib defaults."""
+    font_size = _points_to_pixels(10.0, dpi)
+    title_size = _points_to_pixels(12.0, dpi)
+    line_width = _points_to_pixels(1.5, dpi)
+    tick_size = _points_to_pixels(3.5, dpi)
+    tick_width = _points_to_pixels(0.8, dpi)
+    point_diameter = _points_to_pixels(6.0, dpi)
+    return {
+        "background": "white",
+        "range": {"category": list(_MPL_COLORS)},
+        "view": {"stroke": "#000000", "strokeWidth": tick_width},
+        "axis": {
+            "domain": False,
+            "grid": False,
+            "labelColor": "#000000",
+            "labelFont": _MPL_FONT,
+            "labelFontSize": font_size,
+            "tickColor": "#000000",
+            "tickSize": tick_size,
+            "tickWidth": tick_width,
+            "titleColor": "#000000",
+            "titleFont": _MPL_FONT,
+            "titleFontSize": font_size,
+            "titleFontWeight": "normal",
+            "gridColor": _MPL_GRID,
+            "gridOpacity": 1.0,
+            "gridWidth": tick_width,
+        },
+        "legend": {
+            "labelFont": _MPL_FONT,
+            "labelFontSize": font_size,
+            "fillColor": "white",
+            "strokeColor": "#cccccc",
+            "cornerRadius": 6,
+            "padding": 4,
+            "orient": legend_orient,
+            "symbolStrokeWidth": line_width,
+        },
+        "line": {"strokeWidth": line_width},
+        "point": {"filled": True, "size": point_diameter * point_diameter},
+        "bar": {"fill": _MPL_COLORS[0]},
+        "title": {
+            "anchor": "middle",
+            "color": "#000000",
+            "font": _MPL_FONT,
+            "fontSize": title_size,
+            "fontWeight": "normal",
+            "offset": _points_to_pixels(6.0, dpi),
+        },
+    }
+
+
 def _browser_spec(spec: dict[str, Any]) -> dict[str, Any]:
     """Translate fortplot field extensions into browser-renderable Vega-Lite."""
-    if not _uses_fortplot_extensions(spec):
-        return spec
+    browser = _browser_canvas_spec(spec)
+    if not _uses_fortplot_extensions(browser):
+        return browser
 
     x_enc = _copy_json(spec.get("encoding", {}).get("x", {
         "field": "x",
@@ -144,17 +233,32 @@ def _browser_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "type": "quantitative",
     }))
 
-    browser = {
+    translated = {
         "$schema": VL_SCHEMA,
-        "width": spec.get("width", 640),
-        "height": spec.get("height", 480),
+        "autosize": _copy_json(browser["autosize"]),
+        "config": _copy_json(browser.get("config", {})),
+        "width": browser.get("width", 640),
+        "height": browser.get("height", 480),
         "layer": [],
     }
     if spec.get("title"):
-        browser["title"] = spec["title"]
+        translated["title"] = spec["title"]
+    if "padding" in browser:
+        translated["padding"] = _copy_json(browser["padding"])
 
     for layer in spec.get("layer", []):
-        browser["layer"].extend(_browser_layers(layer, x_enc, y_enc))
+        translated["layer"].extend(_browser_layers(layer, x_enc, y_enc))
+    return translated
+
+
+def _browser_canvas_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """Return one browser-renderable spec with fixed outer canvas dimensions."""
+    browser = _copy_json(spec)
+    browser["autosize"] = {"type": "none", "contains": "padding"}
+    browser.setdefault(
+        "padding",
+        _mpl_padding(int(browser.get("width", 640)), int(browser.get("height", 480))),
+    )
     return browser
 
 
@@ -603,11 +707,15 @@ class MplVegaState:
     def _reset(self) -> None:
         self._width = 640
         self._height = 480
+        self._dpi = 100.0
         self._title: str | None = None
         self._xlabel: str | None = None
         self._ylabel: str | None = None
         self._layers: list[dict[str, Any]] = []
         self._show_grid = False
+        self._grid_alpha: float | None = None
+        self._grid_linestyle: str | None = None
+        self._show_legend = False
         self._xlim: tuple[float, float] | None = None
         self._ylim: tuple[float, float] | None = None
         self._xscale: str | None = None
@@ -660,15 +768,27 @@ class MplVegaState:
                  limits: tuple[float, float] | None, scale_type: str | None) -> dict[str, Any]:
         channel: dict[str, Any] = {"field": field, "type": "quantitative"}
         axis: dict[str, Any] = {}
+        domain = self._scale_domain(field, limits, scale_type)
         if axis_title:
             axis["title"] = axis_title
         if self._show_grid:
             axis["grid"] = True
+            if self._grid_alpha is not None:
+                axis["gridOpacity"] = self._grid_alpha
+            if self._grid_linestyle:
+                dash = _dash_pattern(self._grid_linestyle)
+                if dash is not None:
+                    axis["gridDash"] = dash
+        tick_values = self._tick_values(domain, scale_type)
+        if tick_values:
+            axis["values"] = tick_values
+            if all(abs(value - round(value)) < 1.0e-9 for value in tick_values):
+                axis["format"] = "d"
         if axis:
             channel["axis"] = axis
         scale: dict[str, Any] = {}
-        if limits:
-            scale["domain"] = list(limits)
+        if domain:
+            scale["domain"] = list(domain)
         if scale_type:
             scale["type"] = scale_type
         if scale:
@@ -686,24 +806,180 @@ class MplVegaState:
             values.append(entry)
         return values
 
+    def _legend_series(self) -> list[tuple[str, str]]:
+        """Return labeled series names and colors in plotting order."""
+        series: list[tuple[str, str]] = []
+        for layer in self._layers:
+            label = layer.get("label")
+            color = layer.get("color")
+            if not label or not color:
+                continue
+            if any(existing == label for existing, _ in series):
+                continue
+            series.append((str(label), str(color)))
+        return series
+
     def _color_encoding(self, layer: dict[str, Any]) -> dict[str, Any] | None:
-        """Emit a proper nominal series encoding when a label is present."""
+        """Emit explicit nominal color encoding for labeled series."""
         label = layer.get("label")
         if not label:
+            return None
+        legend_series = self._legend_series()
+        if not legend_series:
             return None
         return {
             "field": "series",
             "type": "nominal",
-            "legend": {"title": None},
+            "legend": {"title": None} if self._show_legend else None,
+            "scale": {
+                "domain": [name for name, _ in legend_series],
+                "range": [color for _, color in legend_series],
+            },
         }
+
+    def _next_color(self) -> str:
+        """Return the next matplotlib cycle color."""
+        return _MPL_COLORS[len(self._layers) % len(_MPL_COLORS)]
+
+    def _line_width(self) -> float:
+        """Return the default matplotlib line width in rendered pixels."""
+        return _points_to_pixels(1.5, self._dpi)
+
+    def _point_area(self) -> float:
+        """Return the default matplotlib marker area in rendered pixels."""
+        diameter = _points_to_pixels(6.0, self._dpi)
+        return diameter * diameter
+
+    def _data_bounds(self, field: str) -> tuple[float, float] | None:
+        """Return raw data bounds for one axis."""
+        values: list[float] = []
+        for layer in self._layers:
+            if "values" in layer:
+                for point in layer["values"]:
+                    value = point.get(field)
+                    if value is not None:
+                        values.append(float(value))
+                continue
+            if "fortplotField" not in layer:
+                continue
+            axis_values = layer["fortplotField"].get(field)
+            if axis_values is None:
+                continue
+            values.extend(float(value) for value in axis_values)
+        if not values:
+            return None
+        return (min(values), max(values))
+
+    def _scale_domain(self, field: str, limits: tuple[float, float] | None,
+                      scale_type: str | None) -> tuple[float, float] | None:
+        """Return explicit scale limits using matplotlib default margins."""
+        if limits is not None:
+            return limits
+        if scale_type not in (None, "", "linear"):
+            return None
+        bounds = self._data_bounds(field)
+        if bounds is None:
+            return None
+        lo, hi = bounds
+        span = hi - lo
+        if span <= 0.0:
+            delta = 1.0 if lo == 0.0 else abs(lo) * 0.05
+        else:
+            delta = span * 0.05
+        return (lo - delta, hi + delta)
+
+    def _tick_values(self, domain: tuple[float, float] | None,
+                     scale_type: str | None) -> list[float] | None:
+        """Return matplotlib-style major ticks for linear axes when available."""
+        if domain is None or scale_type not in (None, "", "linear"):
+            return None
+        try:
+            from matplotlib.ticker import AutoLocator
+        except Exception:
+            return None
+        values = AutoLocator().tick_values(domain[0], domain[1]).tolist()
+        return [float(value) for value in values]
+
+    def _styled_mark(self, layer: dict[str, Any]) -> dict[str, Any]:
+        """Return one explicit mark object with matplotlib-like defaults."""
+        mark = _copy_json(layer["mark"])
+        if isinstance(mark, str):
+            mark = {"type": mark}
+        color = layer.get("color")
+        if color:
+            mark.setdefault("color", color)
+        mark_type = str(mark.get("type", ""))
+        if mark_type == "line":
+            mark.setdefault("clip", True)
+            mark.setdefault("strokeWidth", self._line_width())
+        if mark_type == "point":
+            mark.setdefault("filled", True)
+            mark.setdefault("size", self._point_area())
+        return mark
+
+    def _legend_orient(self) -> str:
+        """Choose a legend corner that minimizes overlap with plotted data."""
+        if not self._show_legend:
+            return "top-right"
+        if len(self._legend_series()) > 1 and all(
+            "fortplotField" not in layer and _mark_type(layer["mark"]) == "line"
+            for layer in self._layers
+        ):
+            return "top-right"
+
+        candidates = {
+            "top-left": 0,
+            "top-right": 0,
+            "bottom-left": 0,
+            "bottom-right": 0,
+        }
+        points: list[tuple[float, float]] = []
+        for layer in self._layers:
+            if "values" not in layer:
+                continue
+            for point in layer["values"]:
+                x = point.get("x")
+                y = point.get("y")
+                if x is None or y is None:
+                    continue
+                points.append((float(x), float(y)))
+
+        if not points:
+            return "top-right"
+
+        xs = [x for x, _ in points]
+        ys = [y for _, y in points]
+        xmin = min(xs)
+        xmax = max(xs)
+        ymin = min(ys)
+        ymax = max(ys)
+        xspan = max(1.0e-12, xmax - xmin)
+        yspan = max(1.0e-12, ymax - ymin)
+        xcut = 0.32 * xspan
+        ycut = 0.22 * yspan
+
+        for x, y in points:
+            if x <= xmin + xcut and y >= ymax - ycut:
+                candidates["top-left"] += 1
+            if x >= xmax - xcut and y >= ymax - ycut:
+                candidates["top-right"] += 1
+            if x <= xmin + xcut and y <= ymin + ycut:
+                candidates["bottom-left"] += 1
+            if x >= xmax - xcut and y <= ymin + ycut:
+                candidates["bottom-right"] += 1
+
+        return min(candidates, key=candidates.get)
 
     def to_spec(self) -> dict[str, Any]:
         x_enc = self._channel("x", self._xlabel, self._xlim, self._xscale)
         y_enc = self._channel("y", self._ylabel, self._ylim, self._yscale)
         spec: dict[str, Any] = {
             "$schema": VL_SCHEMA,
+            "autosize": {"type": "none", "contains": "padding"},
+            "config": _spec_config(self._legend_orient(), self._dpi),
             "width": self._width,
             "height": self._height,
+            "padding": _mpl_padding(self._width, self._height),
         }
         if self._title:
             spec["title"] = self._title
@@ -711,14 +987,19 @@ class MplVegaState:
         has_field_layer = any("fortplotField" in layer for layer in self._layers)
         if len(self._layers) == 0:
             spec["data"] = {"values": []}
-            spec["mark"] = "line"
+            spec["mark"] = {
+                "type": "line",
+                "clip": True,
+                "color": _MPL_COLORS[0],
+                "strokeWidth": self._line_width(),
+            }
             spec["encoding"] = {"x": x_enc, "y": y_enc}
             return spec
 
         if len(self._layers) == 1 and not has_field_layer:
             layer = self._layers[0]
             spec["data"] = {"values": self._values_for_layer(layer)}
-            spec["mark"] = layer["mark"]
+            spec["mark"] = self._styled_mark(layer)
             encoding: dict[str, Any] = {"x": x_enc, "y": y_enc}
             color = self._color_encoding(layer)
             if color is not None:
@@ -730,7 +1011,7 @@ class MplVegaState:
         for layer in self._layers:
             if "fortplotField" in layer:
                 entry = {
-                    "mark": layer["mark"],
+                    "mark": self._styled_mark(layer),
                     "fortplotField": layer["fortplotField"],
                 }
                 color = self._color_encoding(layer)
@@ -744,7 +1025,7 @@ class MplVegaState:
             if color is not None:
                 encoding["color"] = color
             layers.append({
-                "mark": layer["mark"],
+                "mark": self._styled_mark(layer),
                 "encoding": encoding,
                 "data": {"values": self._values_for_layer(layer)},
             })
@@ -753,19 +1034,28 @@ class MplVegaState:
         spec["layer"] = layers
         return spec
 
-    def figure(self, width: int = 640, height: int = 480) -> None:
+    def figure(self, width: int = 640, height: int = 480, dpi: float = 100.0) -> None:
         self._reset()
         self._width = width
         self._height = height
+        self._dpi = float(dpi)
 
     def plot(self, x: Any, y: Any, label: str = "", linestyle: str = "-") -> None:
-        layer = {"mark": _line_mark(linestyle), "values": self._make_xy_values(x, y)}
+        layer = {
+            "mark": _line_mark(linestyle),
+            "values": self._make_xy_values(x, y),
+            "color": self._next_color(),
+        }
         if label:
             layer["label"] = label
         self._layers.append(layer)
 
     def scatter(self, x: Any, y: Any, label: str = "") -> None:
-        layer = {"mark": "point", "values": self._make_xy_values(x, y)}
+        layer = {
+            "mark": "point",
+            "values": self._make_xy_values(x, y),
+            "color": self._next_color(),
+        }
         if label:
             layer["label"] = label
         self._layers.append(layer)
@@ -790,7 +1080,7 @@ class MplVegaState:
         for idx, count in enumerate(counts):
             center = lo + (idx + 0.5) * width
             bar_values.append({"x": center, "y": count})
-        layer = {"mark": "bar", "values": bar_values}
+        layer = {"mark": "bar", "values": bar_values, "color": self._next_color()}
         if label:
             layer["label"] = label
         self._layers.append(layer)
@@ -805,13 +1095,17 @@ class MplVegaState:
         self._ylabel = text
 
     def legend(self) -> None:
-        return
+        self._show_legend = True
 
     def grid(self, enabled: bool | None = None, which: str | None = None,
              axis: str | None = None, alpha: float | None = None,
              linestyle: str | None = None) -> None:
-        _ = which, axis, alpha, linestyle
+        _ = which, axis
         self._show_grid = not self._show_grid if enabled is None else bool(enabled)
+        if alpha is not None:
+            self._grid_alpha = float(alpha)
+        if linestyle is not None:
+            self._grid_linestyle = str(linestyle)
 
     def xlim(self, xmin: float, xmax: float) -> None:
         self._xlim = (float(xmin), float(xmax))

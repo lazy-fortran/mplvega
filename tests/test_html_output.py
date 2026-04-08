@@ -21,8 +21,8 @@ def test_savefig_html_writes_vega_embed_page(tmp_path):
     assert '"quadratic"' in text
     assert "HTML Demo" in text
     assert 'actions: {editor: true, export: false, source: false, compiled: false}' in text
-    assert 'embeddedSpec.width = "container"' in text
-    assert 'embeddedSpec.height = "container"' in text
+    assert "width: 400px;" in text
+    assert "height: 300px;" in text
 
 
 def test_savefig_html_translates_streamplot_for_vega_embed(tmp_path):
@@ -73,6 +73,8 @@ def test_savefig_vl_json_writes_spec(tmp_path):
 
     spec = json.loads(output.read_text(encoding="utf-8"))
     assert spec["$schema"].endswith("vega-lite/v5.json")
+    assert spec["autosize"] == {"type": "none", "contains": "padding"}
+    assert spec["padding"] == {"left": 50, "right": 40, "bottom": 33, "top": 36}
     assert spec["encoding"]["x"]["axis"]["title"] == "x"
     assert spec["encoding"]["y"]["axis"]["title"] == "y"
 

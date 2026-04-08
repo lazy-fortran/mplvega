@@ -140,7 +140,7 @@ def figure(*args: Any, **kwargs: Any) -> _FigurePlaceholder:
 
     width = int(float(figsize[0]) * float(dpi))
     height = int(float(figsize[1]) * float(dpi))
-    frontend.figure(width, height)
+    frontend.figure(width, height, float(dpi))
     return _FigurePlaceholder(figsize, dpi)
 
 

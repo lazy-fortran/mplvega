@@ -28,6 +28,7 @@ class ExampleFigure:
     json_rel: str
     pdf_rel: str
     png_rel: str
+    vega_png_rel: str
     mpl_png_rel: str
 
 
@@ -127,6 +128,7 @@ def build_examples(repo_root: Path, docs_source_root: Path) -> tuple[ExamplePage
             variants=("mpl",),
             mpl_exts=("png",),
         )
+        render_browser_outputs(output_dir)
         source_dir = source_root / slug
         source_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(script, source_dir / script.name)
@@ -181,10 +183,12 @@ def collect_example_page(
         width = int(spec.get("width") or 640)
         height = int(spec.get("height") or 480)
         png_path = output_dir / f"{stem}.png"
+        vega_png_path = output_dir / f"{stem}.vega.png"
         mpl_png_path = output_dir / f"{stem}.mpl.png"
         html_path = output_dir / f"{stem}.html"
         pdf_path = output_dir / f"{stem}.pdf"
         require_file(png_path)
+        require_file(vega_png_path)
         require_file(mpl_png_path)
         require_file(html_path)
         require_file(pdf_path)
@@ -198,6 +202,7 @@ def collect_example_page(
                 json_rel=relative_posix(json_path, docs_source_root / "examples"),
                 pdf_rel=relative_posix(pdf_path, docs_source_root / "examples"),
                 png_rel=relative_posix(png_path, docs_source_root / "examples"),
+                vega_png_rel=relative_posix(vega_png_path, docs_source_root / "examples"),
                 mpl_png_rel=relative_posix(mpl_png_path, docs_source_root / "examples"),
             )
         )
@@ -225,6 +230,23 @@ def require_file(path: Path) -> None:
         raise FileNotFoundError(path)
 
 
+def render_browser_outputs(output_dir: Path) -> None:
+    """Render browser-equivalent Vega PNGs for generated JSON specs."""
+    try:
+        import vl_convert as vlc
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "vl-convert-python is required to render browser Vega artifacts"
+        ) from exc
+
+    from mplvega._state import _browser_spec
+
+    for json_path in sorted(output_dir.glob("*.vl.json")):
+        spec = json.loads(json_path.read_text(encoding="utf-8"))
+        png_bytes = vlc.vegalite_to_png(_browser_spec(spec), scale=1)
+        (output_dir / f"{json_path.name[:-8]}.vega.png").write_bytes(png_bytes)
+
+
 def extract_docstring(script: Path) -> str:
     """Read the module docstring summary from one example file."""
     module = ast.parse(script.read_text(encoding="utf-8"))
@@ -241,8 +263,9 @@ def write_examples_index(docs_source_root: Path, pages: Iterable[ExamplePage]) -
         "========",
         "",
         "The gallery below is generated on CI from the checked-in example scripts.",
-        "Each example page compares matplotlib, Vega HTML, and fortplot outputs built",
-        "from the same script, alongside the exact emitted Vega-Lite JSON and source code.",
+        "Each example page compares matplotlib, browser-rendered Vega, Vega HTML,",
+        "and fortplot outputs built from the same script, alongside the exact",
+        "emitted Vega-Lite JSON and source code.",
         "",
         ".. toctree::",
         "   :hidden:",
@@ -291,6 +314,7 @@ def write_example_pages(docs_source_root: Path, pages: Iterable[ExamplePage]) ->
                     f"- `Vega-Lite JSON <{figure.json_rel}>`_",
                     f"- `Standalone HTML <{figure.html_rel}>`_",
                     f"- `Open in Vega Editor <{figure.html_rel}>`_",
+                    f"- `Vega PNG <{figure.vega_png_rel}>`_",
                     f"- `matplotlib PNG <{figure.mpl_png_rel}>`_",
                     f"- `fortplot PNG <{figure.png_rel}>`_",
                     f"- `fortplot PDF <{figure.pdf_rel}>`_",
@@ -362,7 +386,7 @@ def build_gallery_cards(
                     "    <p class=\"example-card__meta\">"
                     f"{len(page.figures)} figure"
                     f"{'' if len(page.figures) == 1 else 's'}"
-                    " with matplotlib, Vega HTML, fortplot, JSON, and PDF outputs.</p>"
+                    " with matplotlib, Vega PNG/HTML, fortplot, JSON, and PDF outputs.</p>"
                 ),
                 "  </div>",
                 "</a>",
@@ -385,6 +409,15 @@ def build_variant_grid(figure: ExampleFigure) -> str:
             (
                 f'      <a href="{figure.mpl_png_rel}"><img src="{figure.mpl_png_rel}" '
                 f'alt="{title} matplotlib output" width="{figure.width}" height="{figure.height}"></a>'
+            ),
+            '    </div>',
+            '  </section>',
+            '  <section class="example-variant-card">',
+            '    <h3>Vega PNG</h3>',
+            f'    <div class="example-media-frame" style="{frame_style}">',
+            (
+                f'      <a href="{figure.vega_png_rel}"><img src="{figure.vega_png_rel}" '
+                f'alt="{title} Vega output" width="{figure.width}" height="{figure.height}"></a>'
             ),
             '    </div>',
             '  </section>',

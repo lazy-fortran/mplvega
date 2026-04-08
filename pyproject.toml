@@ -13,8 +13,8 @@ dependencies = []
 
 [project.optional-dependencies]
 numpy = ["numpy"]
-test = ["pytest", "numpy", "matplotlib"]
-docs = ["sphinx>=8", "furo>=2024.8.6", "numpy", "matplotlib"]
+test = ["pytest", "numpy", "matplotlib", "vl-convert-python"]
+docs = ["sphinx>=8", "furo>=2024.8.6", "numpy", "matplotlib", "vl-convert-python"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
