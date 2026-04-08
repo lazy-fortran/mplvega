@@ -22,6 +22,8 @@ class ExampleFigure:
 
     stem: str
     title: str
+    width: int
+    height: int
     html_rel: str
     json_rel: str
     pdf_rel: str
@@ -152,6 +154,8 @@ def collect_example_page(
         stem = json_path.name[:-8]
         spec = json.loads(json_path.read_text(encoding="utf-8"))
         title = str(spec.get("title") or prettify_name(stem))
+        width = int(spec.get("width") or 640)
+        height = int(spec.get("height") or 480)
         png_path = output_dir / f"{stem}.png"
         html_path = output_dir / f"{stem}.html"
         pdf_path = output_dir / f"{stem}.pdf"
@@ -162,6 +166,8 @@ def collect_example_page(
             ExampleFigure(
                 stem=stem,
                 title=title,
+                width=width,
+                height=height,
                 html_rel=relative_posix(html_path, docs_source_root / "examples"),
                 json_rel=relative_posix(json_path, docs_source_root / "examples"),
                 pdf_rel=relative_posix(pdf_path, docs_source_root / "examples"),
@@ -313,10 +319,16 @@ def build_gallery_cards(
     for page in pages:
         first = page.figures[0]
         png_path = f"{asset_prefix}{first.png_rel.removeprefix('../')}"
+        frame_style = media_frame_style(first)
         cards.extend(
             [
                 f'<a class="example-card" href="{page_prefix}{page.slug}.html">',
-                f'  <img src="{png_path}" alt="{escape(page.title)} preview">',
+                f'  <div class="example-card__preview" style="{frame_style}">',
+                (
+                    f'    <img src="{png_path}" alt="{escape(page.title)} preview" '
+                    f'width="{first.width}" height="{first.height}">'
+                ),
+                '  </div>',
                 '  <div class="example-card__body">',
                 f'    <h2>{escape(page.title)}</h2>',
                 f'    <p>{escape(page.description)}</p>',
@@ -337,16 +349,24 @@ def build_gallery_cards(
 def build_variant_grid(figure: ExampleFigure) -> str:
     """Build one side-by-side comparison block for a generated figure."""
     title = escape(figure.title)
+    frame_style = media_frame_style(figure)
     return "\n".join(
         [
             '<div class="example-variant-grid">',
             '  <section class="example-variant-card">',
             '    <h3>fortplot PNG</h3>',
-            f'    <a href="{figure.png_rel}"><img src="{figure.png_rel}" alt="{title} fortplot output"></a>',
+            f'    <div class="example-media-frame" style="{frame_style}">',
+            (
+                f'      <a href="{figure.png_rel}"><img src="{figure.png_rel}" '
+                f'alt="{title} fortplot output" width="{figure.width}" height="{figure.height}"></a>'
+            ),
+            '    </div>',
             '  </section>',
             '  <section class="example-variant-card">',
             '    <h3>Vega HTML</h3>',
-            f'    <iframe src="{figure.html_rel}" title="{title} Vega HTML"></iframe>',
+            f'    <div class="example-media-frame" style="{frame_style}">',
+            f'      <iframe src="{figure.html_rel}" title="{title} Vega HTML" loading="lazy"></iframe>',
+            '    </div>',
             '  </section>',
             '  <section class="example-variant-card example-variant-card--json">',
             '    <h3>Vega-Lite JSON</h3>',
@@ -382,6 +402,11 @@ def build_sphinx(docs_source_root: Path, site_root: Path, builder: str) -> None:
 def prettify_name(name: str) -> str:
     """Turn an example slug or figure stem into title case."""
     return name.replace("_", " ").replace("-", " ").title()
+
+
+def media_frame_style(figure: ExampleFigure) -> str:
+    """Inline style carrying one figure's native aspect ratio."""
+    return f"aspect-ratio: {figure.width} / {figure.height};"
 
 
 def relative_posix(path: Path, start: Path) -> str:
