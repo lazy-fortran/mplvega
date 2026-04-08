@@ -48,14 +48,23 @@ Example Scripts
 ---------------
 
 The checked-in examples all use a shared helper so every script emits the same
-set of variants:
+set of variants. The helper can run them with either ``mplvega`` or
+``matplotlib`` as the plotting frontend, which lets the docs gallery use
+matplotlib as the reference render for visual comparison.
 
 - ``.vl.json`` for the canonical Vega-Lite spec
 - ``.html`` for direct browser viewing
 - ``.png`` and ``.pdf`` through ``fortplot_render``
+- ``.mpl.png`` for the matplotlib reference render
 
 You can run an example directly:
 
 .. code-block:: bash
 
    python examples/python/basic_plots/basic_plots.py
+
+Or force the same script to render through matplotlib:
+
+.. code-block:: bash
+
+   MPLVEGA_EXAMPLE_BACKEND=mpl python examples/python/basic_plots/basic_plots.py --variant mpl

@@ -28,6 +28,7 @@ class ExampleFigure:
     json_rel: str
     pdf_rel: str
     png_rel: str
+    mpl_png_rel: str
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,24 @@ def build_examples(repo_root: Path, docs_source_root: Path) -> tuple[ExamplePage
     for script in sorted(example_root.glob("*/*.py")):
         slug = script.parent.name
         output_dir = artifact_root / slug
-        run_example(repo_root, script, output_dir)
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+        run_example(
+            repo_root,
+            script,
+            output_dir,
+            backend="mplvega",
+            variants=("json", "html", "fortplot"),
+            fortplot_exts=("png", "pdf"),
+        )
+        run_example(
+            repo_root,
+            script,
+            output_dir,
+            backend="mpl",
+            variants=("mpl",),
+            mpl_exts=("png",),
+        )
         source_dir = source_root / slug
         source_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(script, source_dir / script.name)
@@ -116,31 +134,37 @@ def build_examples(repo_root: Path, docs_source_root: Path) -> tuple[ExamplePage
     return tuple(pages)
 
 
-def run_example(repo_root: Path, script: Path, output_dir: Path) -> None:
-    """Run one example script and force all three output variants."""
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
+def run_example(
+    repo_root: Path,
+    script: Path,
+    output_dir: Path,
+    *,
+    backend: str,
+    variants: tuple[str, ...],
+    fortplot_exts: tuple[str, ...] = (),
+    mpl_exts: tuple[str, ...] = (),
+) -> None:
+    """Run one example script for one plotting backend."""
     output_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     pythonpath = str(repo_root / "src")
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = pythonpath if not existing else f"{pythonpath}{os.pathsep}{existing}"
+    env["MPLVEGA_EXAMPLE_BACKEND"] = backend
     command = [
         sys.executable,
         str(script),
         "--outdir",
         str(output_dir),
-        "--variant",
-        "json",
-        "--variant",
-        "html",
-        "--variant",
-        "fortplot",
-        "--fortplot-ext",
-        "png",
-        "--fortplot-ext",
-        "pdf",
+        "--backend",
+        backend,
     ]
+    for variant in variants:
+        command.extend(["--variant", variant])
+    for ext in fortplot_exts:
+        command.extend(["--fortplot-ext", ext])
+    for ext in mpl_exts:
+        command.extend(["--mpl-ext", ext])
     subprocess.run(command, cwd=repo_root, env=env, check=True)
 
 
@@ -157,9 +181,11 @@ def collect_example_page(
         width = int(spec.get("width") or 640)
         height = int(spec.get("height") or 480)
         png_path = output_dir / f"{stem}.png"
+        mpl_png_path = output_dir / f"{stem}.mpl.png"
         html_path = output_dir / f"{stem}.html"
         pdf_path = output_dir / f"{stem}.pdf"
         require_file(png_path)
+        require_file(mpl_png_path)
         require_file(html_path)
         require_file(pdf_path)
         figures.append(
@@ -172,6 +198,7 @@ def collect_example_page(
                 json_rel=relative_posix(json_path, docs_source_root / "examples"),
                 pdf_rel=relative_posix(pdf_path, docs_source_root / "examples"),
                 png_rel=relative_posix(png_path, docs_source_root / "examples"),
+                mpl_png_rel=relative_posix(mpl_png_path, docs_source_root / "examples"),
             )
         )
 
@@ -214,8 +241,8 @@ def write_examples_index(docs_source_root: Path, pages: Iterable[ExamplePage]) -
         "========",
         "",
         "The gallery below is generated on CI from the checked-in example scripts.",
-        "Each example page includes fortplot-rendered output, a live Vega HTML variant,",
-        "the exact emitted Vega-Lite JSON, and the source code used to produce them.",
+        "Each example page compares matplotlib, Vega HTML, and fortplot outputs built",
+        "from the same script, alongside the exact emitted Vega-Lite JSON and source code.",
         "",
         ".. toctree::",
         "   :hidden:",
@@ -263,6 +290,8 @@ def write_example_pages(docs_source_root: Path, pages: Iterable[ExamplePage]) ->
                     "",
                     f"- `Vega-Lite JSON <{figure.json_rel}>`_",
                     f"- `Standalone HTML <{figure.html_rel}>`_",
+                    f"- `Open in Vega Editor <{figure.html_rel}>`_",
+                    f"- `matplotlib PNG <{figure.mpl_png_rel}>`_",
                     f"- `fortplot PNG <{figure.png_rel}>`_",
                     f"- `fortplot PDF <{figure.pdf_rel}>`_",
                     "",
@@ -333,7 +362,7 @@ def build_gallery_cards(
                     "    <p class=\"example-card__meta\">"
                     f"{len(page.figures)} figure"
                     f"{'' if len(page.figures) == 1 else 's'}"
-                    " with JSON, HTML, PNG, and PDF outputs.</p>"
+                    " with matplotlib, Vega HTML, fortplot, JSON, and PDF outputs.</p>"
                 ),
                 "  </div>",
                 "</a>",
@@ -350,6 +379,15 @@ def build_variant_grid(figure: ExampleFigure) -> str:
     return "\n".join(
         [
             '<div class="example-variant-grid">',
+            '  <section class="example-variant-card">',
+            '    <h3>matplotlib PNG</h3>',
+            f'    <div class="example-media-frame" style="{frame_style}">',
+            (
+                f'      <a href="{figure.mpl_png_rel}"><img src="{figure.mpl_png_rel}" '
+                f'alt="{title} matplotlib output" width="{figure.width}" height="{figure.height}"></a>'
+            ),
+            '    </div>',
+            '  </section>',
             '  <section class="example-variant-card">',
             '    <h3>fortplot PNG</h3>',
             f'    <div class="example-media-frame" style="{frame_style}">',
@@ -369,6 +407,7 @@ def build_variant_grid(figure: ExampleFigure) -> str:
             '    <h3>Vega-Lite JSON</h3>',
             '    <p>The exact emitted chart spec for this figure.</p>',
             f'    <p><a href="{figure.json_rel}">Open JSON</a></p>',
+            f'    <p><a href="{figure.html_rel}">Open in Vega Editor</a></p>',
             f'    <p><a href="{figure.pdf_rel}">Download PDF</a></p>',
             '  </section>',
             '</div>',

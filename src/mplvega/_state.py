@@ -73,7 +73,10 @@ def _standalone_html(spec: dict[str, Any]) -> str:
     embeddedSpec.autosize = {{type: "fit", contains: "padding", resize: true}};
     embeddedSpec.width = "container";
     embeddedSpec.height = "container";
-    vegaEmbed("#vis", embeddedSpec, {{actions: false, renderer: "svg"}});
+    vegaEmbed("#vis", embeddedSpec, {{
+      actions: {{editor: true, export: false, source: false, compiled: false}},
+      renderer: "svg"
+    }});
   </script>
 </body>
 </html>

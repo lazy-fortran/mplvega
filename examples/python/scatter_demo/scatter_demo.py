@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import numpy as np
 
-import mplvega as plt
-from mplvega.example_support import ExampleOutputs
+from mplvega.example_support import ExampleOutputs, import_backend
+
+plt = import_backend()
 
 OUTPUTS = ExampleOutputs(__file__)
 RNG = np.random.default_rng(42)

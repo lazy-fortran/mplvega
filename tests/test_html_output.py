@@ -20,7 +20,7 @@ def test_savefig_html_writes_vega_embed_page(tmp_path):
     assert "cdn.jsdelivr.net/npm/vega-lite@5" in text
     assert '"quadratic"' in text
     assert "HTML Demo" in text
-    assert 'actions: false' in text
+    assert 'actions: {editor: true, export: false, source: false, compiled: false}' in text
     assert 'embeddedSpec.width = "container"' in text
     assert 'embeddedSpec.height = "container"' in text
 
