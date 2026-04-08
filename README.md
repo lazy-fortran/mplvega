@@ -24,3 +24,17 @@ By default each example writes all three variants. You can restrict output with:
 python examples/python/basic_plots/basic_plots.py --variant json --variant html
 python examples/python/basic_plots/basic_plots.py --variant fortplot --fortplot-ext png
 ```
+
+## Documentation Site
+
+The project ships a generated Sphinx site with API docs and an examples gallery.
+Build it locally with:
+
+```bash
+export MPLVEGA_FORTPLOT_RENDER=/path/to/fortplot_render
+python -m pip install -e .[docs,test]
+python scripts/build_docs.py
+```
+
+The resulting site is written to `build/site/`. GitHub Pages publishes that same
+generated site automatically from CI on pushes to `main`.

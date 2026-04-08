@@ -1,0 +1,65 @@
+name: Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Fortran toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran wget
+      - name: Install FPM
+        run: |
+          wget --timeout=30 --tries=2 https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
+          chmod +x fpm-0.12.0-linux-x86_64-gcc-12
+          sudo mv fpm-0.12.0-linux-x86_64-gcc-12 /usr/local/bin/fpm
+          fpm --version
+      - name: Checkout fortplot
+        uses: actions/checkout@v5
+        with:
+          repository: lazy-fortran/fortplot
+          ref: main
+          path: fortplot
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: python -m pip install -e .[docs,test]
+      - name: Build fortplot_render
+        run: |
+          renderer=$(./scripts/build_fortplot_render.sh fortplot)
+          echo "MPLVEGA_FORTPLOT_RENDER=$renderer" >> "$GITHUB_ENV"
+      - name: Build documentation site
+        run: python scripts/build_docs.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/site
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
