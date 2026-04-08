@@ -84,10 +84,9 @@ def _standalone_html(spec: dict[str, Any]) -> str:
     body {{
       background: white;
       display: grid;
-      min-height: 100vh;
+      height: 100vh;
       overflow: auto;
       place-items: center;
-      padding: 1rem;
     }}
     #vis {{
       height: {height}px;
