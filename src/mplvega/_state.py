@@ -18,6 +18,7 @@ VL_SCHEMA = "https://vega.github.io/schema/vega-lite/v5.json"
 VEGA_JS = "https://cdn.jsdelivr.net/npm/vega@5"
 VEGA_LITE_JS = "https://cdn.jsdelivr.net/npm/vega-lite@5"
 VEGA_EMBED_JS = "https://cdn.jsdelivr.net/npm/vega-embed@6"
+_FORTPLOT_ONLY_MARKS = {"contour", "contour_filled", "pcolormesh", "streamplot"}
 
 
 def _to_list(seq: Any) -> list[float | None]:
@@ -36,7 +37,7 @@ def _to_list(seq: Any) -> list[float | None]:
 
 def _standalone_html(spec: dict[str, Any]) -> str:
     """Build one self-contained HTML page that renders the spec via Vega-Embed."""
-    spec_json = json.dumps(spec, indent=2, allow_nan=False)
+    spec_json = json.dumps(_browser_spec(spec), indent=2, allow_nan=False)
     title = spec.get("title") or "mplvega figure"
     return f"""<!doctype html>
 <html lang="en">
@@ -77,6 +78,517 @@ def _standalone_html(spec: dict[str, Any]) -> str:
 </body>
 </html>
 """
+
+
+def _uses_fortplot_extensions(spec: dict[str, Any]) -> bool:
+    """Return True when the spec contains fortplot-only field marks."""
+    if "fortplotField" in spec:
+        return True
+    mark = spec.get("mark")
+    if isinstance(mark, dict) and mark.get("type") in _FORTPLOT_ONLY_MARKS:
+        return True
+    if isinstance(mark, str) and mark in _FORTPLOT_ONLY_MARKS:
+        return True
+    for layer in spec.get("layer", []):
+        if "fortplotField" in layer:
+            return True
+        layer_mark = layer.get("mark")
+        if isinstance(layer_mark, dict) and layer_mark.get("type") in _FORTPLOT_ONLY_MARKS:
+            return True
+        if isinstance(layer_mark, str) and layer_mark in _FORTPLOT_ONLY_MARKS:
+            return True
+    return False
+
+
+def _dash_pattern(linestyle: str) -> list[int] | None:
+    """Map matplotlib-style line styles to Vega strokeDash arrays."""
+    style = linestyle.strip()
+    if style in ("", "-", "solid"):
+        return None
+    if style in ("--", "dashed"):
+        return [6, 3]
+    if style in (":", "dotted"):
+        return [2, 3]
+    if style in ("-.", "dashdot"):
+        return [6, 3, 2, 3]
+    return None
+
+
+def _line_mark(linestyle: str) -> str | dict[str, Any]:
+    """Build a Vega-Lite mark for one line layer."""
+    dash = _dash_pattern(linestyle)
+    if dash is None:
+        return "line"
+    return {"type": "line", "strokeDash": dash}
+
+
+def _copy_json(value: Any) -> Any:
+    """Create a JSON-compatible deep copy."""
+    return json.loads(json.dumps(value))
+
+
+def _browser_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """Translate fortplot field extensions into browser-renderable Vega-Lite."""
+    if not _uses_fortplot_extensions(spec):
+        return spec
+
+    x_enc = _copy_json(spec.get("encoding", {}).get("x", {
+        "field": "x",
+        "type": "quantitative",
+    }))
+    y_enc = _copy_json(spec.get("encoding", {}).get("y", {
+        "field": "y",
+        "type": "quantitative",
+    }))
+
+    browser = {
+        "$schema": VL_SCHEMA,
+        "width": spec.get("width", 640),
+        "height": spec.get("height", 480),
+        "layer": [],
+    }
+    if spec.get("title"):
+        browser["title"] = spec["title"]
+
+    for layer in spec.get("layer", []):
+        browser["layer"].extend(_browser_layers(layer, x_enc, y_enc))
+    return browser
+
+
+def _browser_layers(layer: dict[str, Any], x_enc: dict[str, Any],
+                    y_enc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Translate one layered entry for browser rendering."""
+    if "fortplotField" not in layer:
+        return [_copy_json(layer)]
+
+    field = layer["fortplotField"]
+    mark_type = _mark_type(layer.get("mark"))
+
+    if mark_type == "contour":
+        return [_contour_rule_layer(field, x_enc, y_enc)]
+    if mark_type == "contour_filled":
+        return [_heatmap_layer(field, x_enc, y_enc)]
+    if mark_type == "pcolormesh":
+        return [_heatmap_layer(field, x_enc, y_enc)]
+    if mark_type == "streamplot":
+        return [_streamplot_rule_layer(field, x_enc, y_enc)]
+    return [_copy_json(layer)]
+
+
+def _mark_type(mark: Any) -> str:
+    """Return the concrete mark type string."""
+    if isinstance(mark, dict):
+        return str(mark.get("type", ""))
+    return str(mark)
+
+
+def _contour_rule_layer(field: dict[str, Any], x_enc: dict[str, Any],
+                        y_enc: dict[str, Any]) -> dict[str, Any]:
+    """Build a rule layer from contour line segments."""
+    segments = _contour_segments(field)
+    return {
+        "mark": {"type": "rule", "stroke": "#1f77b4", "strokeWidth": 1.5},
+        "data": {"values": segments},
+        "encoding": {
+            "x": _copy_json(x_enc),
+            "x2": {"field": "x2"},
+            "y": _copy_json(y_enc),
+            "y2": {"field": "y2"},
+        },
+    }
+
+
+def _heatmap_layer(field: dict[str, Any], x_enc: dict[str, Any],
+                   y_enc: dict[str, Any]) -> dict[str, Any]:
+    """Build a rect heatmap layer for field-style data."""
+    scale: dict[str, Any] = {"scheme": _scheme_name(field.get("colormap"))}
+    if "vmin" in field or "vmax" in field:
+        lo = float(field.get("vmin", 0.0))
+        hi = float(field.get("vmax", 1.0))
+        scale["domain"] = [lo, hi]
+
+    return {
+        "mark": {"type": "rect"},
+        "data": {"values": _heatmap_values(field)},
+        "encoding": {
+            "x": _copy_json(x_enc),
+            "x2": {"field": "x2"},
+            "y": _copy_json(y_enc),
+            "y2": {"field": "y2"},
+            "color": {
+                "field": "value",
+                "type": "quantitative",
+                "scale": scale,
+            },
+        },
+    }
+
+
+def _streamplot_rule_layer(field: dict[str, Any], x_enc: dict[str, Any],
+                           y_enc: dict[str, Any]) -> dict[str, Any]:
+    """Build a rule layer from streamline segments."""
+    return {
+        "mark": {"type": "rule", "stroke": "#1f77b4", "strokeWidth": 1.5},
+        "data": {"values": _streamplot_segments(field)},
+        "encoding": {
+            "x": _copy_json(x_enc),
+            "x2": {"field": "x2"},
+            "y": _copy_json(y_enc),
+            "y2": {"field": "y2"},
+        },
+    }
+
+
+def _scheme_name(colormap: Any) -> str:
+    """Map fortplot colormap names to Vega schemes."""
+    name = str(colormap or "viridis").lower()
+    mapping = {
+        "viridis": "viridis",
+        "plasma": "plasma",
+        "inferno": "inferno",
+        "coolwarm": "redblue",
+        "jet": "rainbow",
+        "crest": "tealblues",
+    }
+    return mapping.get(name, "viridis")
+
+
+def _field_matrix(field: dict[str, Any], key: str) -> tuple[Any, Any, Any]:
+    """Reconstruct one field matrix in conventional y,x order."""
+    import numpy as np
+
+    x = np.asarray(field["x"], dtype=float)
+    y = np.asarray(field["y"], dtype=float)
+    flat = np.asarray(field[key], dtype=float)
+    nx = int(field["nrows"])
+    ny = int(field["ncols"])
+    matrix = flat.reshape((nx, ny), order="F").T
+    return x, y, matrix
+
+
+def _axis_edges(axis: Any, count: int) -> Any:
+    """Return cell edges for either center or edge coordinates."""
+    import numpy as np
+
+    values = np.asarray(axis, dtype=float)
+    if values.size == count + 1:
+        return values
+    if values.size == count:
+        if count == 1:
+            delta = 1.0
+            return np.asarray([values[0] - 0.5 * delta, values[0] + 0.5 * delta], dtype=float)
+        mids = 0.5 * (values[:-1] + values[1:])
+        first = values[0] - 0.5 * (values[1] - values[0])
+        last = values[-1] + 0.5 * (values[-1] - values[-2])
+        return np.concatenate(([first], mids, [last]))
+    raise ValueError("field axes do not match data shape")
+
+
+def _heatmap_values(field: dict[str, Any]) -> list[dict[str, float]]:
+    """Lower field data to explicit rect cells."""
+    x, y, z = _field_matrix(field, "z")
+    x_edges = _axis_edges(x, z.shape[1])
+    y_edges = _axis_edges(y, z.shape[0])
+
+    values: list[dict[str, float]] = []
+    for j in range(z.shape[0]):
+        for i in range(z.shape[1]):
+            values.append({
+                "x": float(x_edges[i]),
+                "x2": float(x_edges[i + 1]),
+                "y": float(y_edges[j]),
+                "y2": float(y_edges[j + 1]),
+                "value": float(z[j, i]),
+            })
+    return values
+
+
+def _contour_segments(field: dict[str, Any]) -> list[dict[str, float]]:
+    """Lower contour data to explicit rule segments via marching squares."""
+    x, y, z = _field_matrix(field, "z")
+    levels = field.get("levels")
+    if levels is None:
+        levels = _default_levels(z)
+
+    segments: list[dict[str, float]] = []
+    for level in levels:
+        segments.extend(_marching_segments(x, y, z, float(level)))
+    return segments
+
+
+def _default_levels(z: Any) -> list[float]:
+    """Choose contour levels from the data range."""
+    import numpy as np
+
+    zmin = float(np.nanmin(z))
+    zmax = float(np.nanmax(z))
+    if not math.isfinite(zmin) or not math.isfinite(zmax) or zmin == zmax:
+        return []
+    levels = np.linspace(zmin, zmax, 9, dtype=float)[1:-1]
+    return levels.tolist()
+
+
+def _marching_segments(x: Any, y: Any, z: Any, level: float) -> list[dict[str, float]]:
+    """Return contour line segments for one threshold."""
+    cases = {
+        0: (),
+        1: ((3, 0),),
+        2: ((0, 1),),
+        3: ((3, 1),),
+        4: ((1, 2),),
+        5: ((3, 2), (0, 1)),
+        6: ((0, 2),),
+        7: ((3, 2),),
+        8: ((2, 3),),
+        9: ((0, 2),),
+        10: ((0, 1), (2, 3)),
+        11: ((1, 2),),
+        12: ((1, 3),),
+        13: ((0, 1),),
+        14: ((3, 0),),
+        15: (),
+    }
+
+    segments: list[dict[str, float]] = []
+    for j in range(len(y) - 1):
+        for i in range(len(x) - 1):
+            x0 = float(x[i])
+            x1 = float(x[i + 1])
+            y0 = float(y[j])
+            y1 = float(y[j + 1])
+
+            bl = float(z[j, i])
+            br = float(z[j, i + 1])
+            tr = float(z[j + 1, i + 1])
+            tl = float(z[j + 1, i])
+
+            index = 0
+            if bl >= level:
+                index = index + 1
+            if br >= level:
+                index = index + 2
+            if tr >= level:
+                index = index + 4
+            if tl >= level:
+                index = index + 8
+            if index == 0 or index == 15:
+                continue
+
+            edges = {
+                0: _edge_point(x0, y0, bl, x1, y0, br, level),
+                1: _edge_point(x1, y0, br, x1, y1, tr, level),
+                2: _edge_point(x0, y1, tl, x1, y1, tr, level),
+                3: _edge_point(x0, y0, bl, x0, y1, tl, level),
+            }
+            for edge_a, edge_b in cases[index]:
+                point_a = edges[edge_a]
+                point_b = edges[edge_b]
+                segments.append({
+                    "x": point_a[0],
+                    "y": point_a[1],
+                    "x2": point_b[0],
+                    "y2": point_b[1],
+                    "level": level,
+                })
+    return segments
+
+
+def _edge_point(x0: float, y0: float, v0: float, x1: float, y1: float, v1: float,
+                level: float) -> tuple[float, float]:
+    """Interpolate one contour crossing point."""
+    if v1 == v0:
+        weight = 0.5
+    else:
+        weight = (level - v0) / (v1 - v0)
+    weight = max(0.0, min(1.0, weight))
+    return (x0 + weight * (x1 - x0), y0 + weight * (y1 - y0))
+
+
+def _streamplot_segments(field: dict[str, Any]) -> list[dict[str, float]]:
+    """Lower streamplot data to explicit rule segments."""
+    import numpy as np
+
+    x, y, u = _field_matrix(field, "u")
+    _, _, v = _field_matrix(field, "v")
+    density = max(0.5, float(field.get("density", 1.0)))
+
+    xmin = float(np.min(x))
+    xmax = float(np.max(x))
+    ymin = float(np.min(y))
+    ymax = float(np.max(y))
+    if xmin == xmax or ymin == ymax:
+        return []
+
+    dx = float(np.min(np.diff(x))) if x.size > 1 else 1.0
+    dy = float(np.min(np.diff(y))) if y.size > 1 else 1.0
+    step = 0.35 * min(abs(dx), abs(dy))
+    if step <= 0.0:
+        return []
+
+    aspect = (ymax - ymin) / (xmax - xmin)
+    seed_cols = max(10, int(round(12.0 * density)))
+    seed_rows = max(10, int(round(seed_cols * max(0.5, aspect))))
+    mask_cols = max(18, seed_cols * 2)
+    mask_rows = max(18, seed_rows * 2)
+    occupied = np.zeros((mask_rows, mask_cols), dtype=bool)
+
+    segments: list[dict[str, float]] = []
+    path_id = 0
+    seeds_x = np.linspace(xmin, xmax, seed_cols)
+    seeds_y = np.linspace(ymin, ymax, seed_rows)
+    for seed_y in seeds_y:
+        for seed_x in seeds_x:
+            if _occupied_cell(seed_x, seed_y, xmin, xmax, ymin, ymax, occupied):
+                continue
+            points = _integrate_streamline(seed_x, seed_y, x, y, u, v, step, occupied)
+            if len(points) < 3:
+                continue
+            _mark_streamline(points, xmin, xmax, ymin, ymax, occupied)
+            for point_a, point_b in zip(points, points[1:]):
+                segments.append({
+                    "x": point_a[0],
+                    "y": point_a[1],
+                    "x2": point_b[0],
+                    "y2": point_b[1],
+                    "path": path_id,
+                })
+            path_id += 1
+    return segments
+
+
+def _integrate_streamline(seed_x: float, seed_y: float, x: Any, y: Any, u: Any, v: Any,
+                          step: float, occupied: Any) -> list[tuple[float, float]]:
+    """Integrate one streamline forward and backward from a seed."""
+    backward = _advect(seed_x, seed_y, x, y, u, v, -step, occupied)
+    forward = _advect(seed_x, seed_y, x, y, u, v, step, occupied)
+    backward.reverse()
+    return backward + [(seed_x, seed_y)] + forward
+
+
+def _advect(seed_x: float, seed_y: float, x: Any, y: Any, u: Any, v: Any, step: float,
+            occupied: Any) -> list[tuple[float, float]]:
+    """Integrate one streamline direction with simple RK4 advection."""
+    points: list[tuple[float, float]] = []
+    px = seed_x
+    py = seed_y
+    for _ in range(500):
+        next_point = _rk4_step(px, py, step, x, y, u, v)
+        if next_point is None:
+            break
+        nx, ny = next_point
+        if not (float(x[0]) <= nx <= float(x[-1]) and float(y[0]) <= ny <= float(y[-1])):
+            break
+        if points and math.hypot(nx - px, ny - py) < 1.0e-9:
+            break
+        px = nx
+        py = ny
+        points.append((px, py))
+        if len(points) > 8 and _occupied_cell(px, py, float(x[0]), float(x[-1]),
+                                              float(y[0]), float(y[-1]), occupied):
+            break
+    return points
+
+
+def _rk4_step(px: float, py: float, step: float, x: Any, y: Any, u: Any,
+              v: Any) -> tuple[float, float] | None:
+    """Advance one streamline step using normalized RK4 integration."""
+    k1 = _unit_vector(px, py, x, y, u, v)
+    if k1 is None:
+        return None
+    k2 = _unit_vector(px + 0.5 * step * k1[0], py + 0.5 * step * k1[1], x, y, u, v)
+    if k2 is None:
+        return None
+    k3 = _unit_vector(px + 0.5 * step * k2[0], py + 0.5 * step * k2[1], x, y, u, v)
+    if k3 is None:
+        return None
+    k4 = _unit_vector(px + step * k3[0], py + step * k3[1], x, y, u, v)
+    if k4 is None:
+        return None
+
+    dx = (k1[0] + 2.0 * k2[0] + 2.0 * k3[0] + k4[0]) / 6.0
+    dy = (k1[1] + 2.0 * k2[1] + 2.0 * k3[1] + k4[1]) / 6.0
+    return (px + step * dx, py + step * dy)
+
+
+def _unit_vector(px: float, py: float, x: Any, y: Any, u: Any, v: Any) -> tuple[float, float] | None:
+    """Interpolate and normalize the local vector field."""
+    vec = _interpolate_vector(px, py, x, y, u, v)
+    if vec is None:
+        return None
+    ux, uy = vec
+    norm = math.hypot(ux, uy)
+    if norm <= 1.0e-12:
+        return None
+    return (ux / norm, uy / norm)
+
+
+def _interpolate_vector(px: float, py: float, x: Any, y: Any, u: Any,
+                        v: Any) -> tuple[float, float] | None:
+    """Bilinearly interpolate one vector field sample."""
+    import numpy as np
+
+    if px < float(x[0]) or px > float(x[-1]) or py < float(y[0]) or py > float(y[-1]):
+        return None
+
+    ix = int(np.searchsorted(x, px, side="right") - 1)
+    iy = int(np.searchsorted(y, py, side="right") - 1)
+    ix = min(max(ix, 0), len(x) - 2)
+    iy = min(max(iy, 0), len(y) - 2)
+
+    x0 = float(x[ix])
+    x1 = float(x[ix + 1])
+    y0 = float(y[iy])
+    y1 = float(y[iy + 1])
+    tx = 0.0 if x1 == x0 else (px - x0) / (x1 - x0)
+    ty = 0.0 if y1 == y0 else (py - y0) / (y1 - y0)
+
+    u00 = float(u[iy, ix])
+    u10 = float(u[iy, ix + 1])
+    u01 = float(u[iy + 1, ix])
+    u11 = float(u[iy + 1, ix + 1])
+    v00 = float(v[iy, ix])
+    v10 = float(v[iy, ix + 1])
+    v01 = float(v[iy + 1, ix])
+    v11 = float(v[iy + 1, ix + 1])
+
+    ux = ((1.0 - tx) * (1.0 - ty) * u00 +
+          tx * (1.0 - ty) * u10 +
+          (1.0 - tx) * ty * u01 +
+          tx * ty * u11)
+    uy = ((1.0 - tx) * (1.0 - ty) * v00 +
+          tx * (1.0 - ty) * v10 +
+          (1.0 - tx) * ty * v01 +
+          tx * ty * v11)
+    return (ux, uy)
+
+
+def _occupied_cell(px: float, py: float, xmin: float, xmax: float, ymin: float, ymax: float,
+                   occupied: Any) -> bool:
+    """Check occupancy in a coarse streamline mask."""
+    row, col = _mask_index(px, py, xmin, xmax, ymin, ymax, occupied)
+    return bool(occupied[row, col])
+
+
+def _mark_streamline(points: list[tuple[float, float]], xmin: float, xmax: float,
+                     ymin: float, ymax: float, occupied: Any) -> None:
+    """Mark streamline cells as occupied to reduce overdraw."""
+    for px, py in points:
+        row, col = _mask_index(px, py, xmin, xmax, ymin, ymax, occupied)
+        row0 = max(0, row - 1)
+        row1 = min(occupied.shape[0], row + 2)
+        col0 = max(0, col - 1)
+        col1 = min(occupied.shape[1], col + 2)
+        occupied[row0:row1, col0:col1] = True
+
+
+def _mask_index(px: float, py: float, xmin: float, xmax: float, ymin: float, ymax: float,
+                occupied: Any) -> tuple[int, int]:
+    """Map one point into the coarse streamline mask."""
+    tx = 0.0 if xmax == xmin else (px - xmin) / (xmax - xmin)
+    ty = 0.0 if ymax == ymin else (py - ymin) / (ymax - ymin)
+    col = min(max(int(tx * (occupied.shape[1] - 1)), 0), occupied.shape[1] - 1)
+    row = min(max(int(ty * (occupied.shape[0] - 1)), 0), occupied.shape[0] - 1)
+    return (row, col)
 
 
 class MplVegaState:
@@ -244,8 +756,7 @@ class MplVegaState:
         self._height = height
 
     def plot(self, x: Any, y: Any, label: str = "", linestyle: str = "-") -> None:
-        _ = linestyle
-        layer = {"mark": "line", "values": self._make_xy_values(x, y)}
+        layer = {"mark": _line_mark(linestyle), "values": self._make_xy_values(x, y)}
         if label:
             layer["label"] = label
         self._layers.append(layer)
