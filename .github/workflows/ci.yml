@@ -11,6 +11,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Install Fortran toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran wget
+      - name: Install FPM
+        run: |
+          wget --timeout=30 --tries=2 https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
+          chmod +x fpm-0.12.0-linux-x86_64-gcc-12
+          sudo mv fpm-0.12.0-linux-x86_64-gcc-12 /usr/local/bin/fpm
+          fpm --version
+      - name: Checkout fortplot
+        uses: actions/checkout@v5
+        with:
+          repository: lazy-fortran/fortplot
+          ref: main
+          path: fortplot
+          fetch-depth: 1
+      - name: Build fortplot_render
+        run: |
+          cd fortplot
+          fpm run --target fortplot_render -- --help >/dev/null
+          renderer_path=$(find build -path '*/app/fortplot_render' -type f | head -n 1)
+          test -n "$renderer_path"
+          echo "MPLVEGA_FORTPLOT_RENDER=$GITHUB_WORKSPACE/fortplot/$renderer_path" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

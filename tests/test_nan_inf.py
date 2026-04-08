@@ -7,6 +7,7 @@ import tempfile
 
 import mplvega as plt
 from mplvega._state import _to_list
+from mplvega.fortplot import find_render_executable
 
 
 def test_to_list_replaces_nan_with_none():
@@ -44,6 +45,9 @@ def test_json_output_uses_null_for_nan():
 
 
 def test_savefig_png_with_nan_inf():
+    executable = find_render_executable()
+    assert executable is not None
+
     plt.figure()
     x = [0.0, 1.0, 2.0, 3.0, 4.0]
     y = [1.0, float('nan'), 3.0, float('inf'), -float('inf')]

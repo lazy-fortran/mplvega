@@ -10,7 +10,7 @@ from mplvega.fortplot import find_render_executable
 
 def test_fortplot_backend_can_render_png(tmp_path):
     executable = find_render_executable()
-    assert executable
+    assert executable is not None
 
     plt.figure(figsize=(4.0, 3.0), dpi=100)
     plt.plot([1, 2, 3], [1, 4, 9], label="quadratic")
