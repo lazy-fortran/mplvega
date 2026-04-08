@@ -1,4 +1,9 @@
-"""Optional fortplot renderer bridge for mplvega."""
+"""Optional bridge from ``mplvega`` specs into ``fortplot_render``.
+
+This module is deliberately small. ``mplvega`` owns the plotting surface and
+spec generation; the bridge only locates ``fortplot_render`` and invokes it for
+image or PDF output.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +16,15 @@ from typing import Any
 
 
 def find_render_executable() -> str | None:
-    """Locate ``fortplot_render`` from common development and installed layouts."""
+    """Locate ``fortplot_render`` from development or installed layouts.
+
+    The search order is:
+
+    1. ``MPLVEGA_FORTPLOT_RENDER`` or ``FORTPLOT_RENDER``
+    2. ``./fortplot_render`` in the current working directory
+    3. sibling or in-repo ``fortplot/build/*/app/fortplot_render``
+    4. ``fortplot_render`` on ``PATH``
+    """
     env_path = os.environ.get("MPLVEGA_FORTPLOT_RENDER") or os.environ.get("FORTPLOT_RENDER")
     if env_path:
         env_candidate = Path(env_path).expanduser()
@@ -53,7 +66,19 @@ def find_render_executable() -> str | None:
 
 
 def render_spec(spec: dict[str, Any], filename: str, executable: str | None = None) -> None:
-    """Render one spec with ``fortplot_render``."""
+    """Render one in-memory spec with ``fortplot_render``.
+
+    Parameters
+    ----------
+    spec : dict
+        Canonical ``mplvega`` / Vega-Lite-style spec payload.
+    filename : str
+        Output path to write. The suffix determines the backend output format
+        handled by ``fortplot_render``.
+    executable : str, optional
+        Explicit path to ``fortplot_render``. When omitted, the executable is
+        located with :func:`find_render_executable`.
+    """
     renderer = executable or find_render_executable()
     if renderer is None:
         raise RuntimeError(

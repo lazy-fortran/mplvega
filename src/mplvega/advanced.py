@@ -1,4 +1,9 @@
-"""Advanced field-plot helpers."""
+"""Advanced field-plot helpers.
+
+These helpers cover the main non-line plotting surface that is currently
+demonstrated in the docs gallery: contours, filled contours, streamplots, and
+pseudocolor meshes.
+"""
 
 import numpy as np
 
@@ -29,6 +34,14 @@ def contour(X, Y, Z, levels=None, *, data=None, **kwargs):
         The height values over which the contour is drawn.
     levels : array-like, optional
         Determines the number and positions of the contour lines.
+    data : mapping, optional
+        Mapping used to resolve string field names.
+
+    Notes
+    -----
+    2D ``X`` and ``Y`` inputs produced by ``numpy.meshgrid`` are accepted. The
+    frontend extracts the 1D coordinate axes and transposes ``Z`` into the
+    column-major layout expected by the downstream Fortran renderer.
     """
     X = _ensure_array(_resolve_from_data(X, data))
     Y = _ensure_array(_resolve_from_data(Y, data))
@@ -65,6 +78,13 @@ def contourf(X, Y, Z, levels=None, *, data=None, **kwargs):
         The height values over which the contour is drawn.
     levels : array-like, optional
         Determines the number and positions of the contour lines.
+    data : mapping, optional
+        Mapping used to resolve string field names.
+
+    Other Parameters
+    ----------------
+    cmap, colormap : str, optional
+        Colormap name forwarded into the shared frontend state.
     """
     X = _ensure_array(_resolve_from_data(X, data))
     Y = _ensure_array(_resolve_from_data(Y, data))
@@ -114,6 +134,14 @@ def streamplot(X, Y, U, V, density=1.0, *, data=None, **kwargs):
         the number of columns should match X.
     density : float, optional
         Controls the closeness of streamlines. Default is 1.
+    data : mapping, optional
+        Mapping used to resolve string field names.
+
+    Notes
+    -----
+    As with :func:`contour`, 2D meshgrid-style ``X`` and ``Y`` inputs are
+    accepted and vector fields are transposed into Fortran-friendly layout
+    before they are forwarded.
     """
     X = _ensure_array(_resolve_from_data(X, data))
     Y = _ensure_array(_resolve_from_data(Y, data))
@@ -139,45 +167,37 @@ def streamplot(X, Y, U, V, density=1.0, *, data=None, **kwargs):
 
 def pcolormesh(X, Y, C, cmap=None, vmin=None, vmax=None,
                edgecolors='none', linewidths=None, *, data=None, **kwargs):
-    """Create a pseudocolor plot with a non-regular rectangular grid.
-    
+    """Create a pseudocolor mesh plot.
+
     Parameters
     ----------
     X, Y : array-like
         The coordinates of the quadrilateral corners. Can be:
-        - 1D arrays of length N+1 and M+1 for regular grid
-        - 2D arrays of shape (M+1, N+1) for irregular grid
+        ``1D`` arrays of length ``N+1`` and ``M+1`` for a regular grid, or
+        ``2D`` arrays of shape ``(M+1, N+1)`` for an irregular grid.
     C : array-like
-        The color values. Shape (M, N).
+        Color values with shape ``(M, N)``.
     cmap : str or Colormap, optional
-        The colormap to use. Supported: 'viridis', 'plasma', 'inferno', 
-        'coolwarm', 'jet', 'crest' (default).
+        Colormap name.
     vmin, vmax : float, optional
         Data range for colormap normalization.
     edgecolors : color or 'none', optional
-        Color of the edges. Default 'none'.
+        Edge color. ``"none"`` disables edge rendering.
     linewidths : float, optional
-        Width of the edges.
-    **kwargs
-        Additional keyword arguments (for matplotlib compatibility).
-        
+        Edge width.
+    data : mapping, optional
+        Mapping used to resolve string field names.
+
     Returns
     -------
-    QuadMesh
-        The matplotlib QuadMesh collection (placeholder for compatibility).
-        
-    Examples
-    --------
-    Basic usage with regular grid:
-    
-    >>> x = np.linspace(0, 1, 11)
-    >>> y = np.linspace(0, 1, 8) 
-    >>> C = np.random.random((7, 10))
-    >>> pcolormesh(x, y, C, cmap='viridis')
-    
-    With custom color limits:
-    
-    >>> pcolormesh(x, y, C, cmap='plasma', vmin=0.2, vmax=0.8)
+    QuadMeshPlaceholder
+        Lightweight placeholder for code that expects a matplotlib ``QuadMesh``.
+
+    Notes
+    -----
+    Regular grids are supported directly. Irregular grids are validated, but the
+    current renderer still lowers them through extracted boundary coordinates
+    rather than a full curvilinear mesh representation.
     """
     X = _ensure_array(_resolve_from_data(X, data))
     Y = _ensure_array(_resolve_from_data(Y, data))

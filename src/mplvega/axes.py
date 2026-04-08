@@ -1,4 +1,4 @@
-"""Axes and label helpers."""
+"""Axes, labels, limits, and scale helpers."""
 
 from __future__ import annotations
 
@@ -27,24 +27,45 @@ class _TextPlaceholder:
 
 
 def title(label: Any = None, *args: Any, **kwargs: Any) -> _TextPlaceholder:
+    """Set the figure title.
+
+    Parameters
+    ----------
+    label : str
+        Title text.
+
+    Returns
+    -------
+    _TextPlaceholder
+        Minimal text placeholder for matplotlib-style code that expects a text
+        artist back.
+    """
     label_text = _coerce_label(label, kwargs)
     frontend.title(label_text)
     return _TextPlaceholder(label_text)
 
 
 def xlabel(label: Any = None, *args: Any, **kwargs: Any) -> _TextPlaceholder:
+    """Set the x-axis label and return a lightweight text placeholder."""
     label_text = _coerce_label(label, kwargs)
     frontend.xlabel(label_text)
     return _TextPlaceholder(label_text)
 
 
 def ylabel(label: Any = None, *args: Any, **kwargs: Any) -> _TextPlaceholder:
+    """Set the y-axis label and return a lightweight text placeholder."""
     label_text = _coerce_label(label, kwargs)
     frontend.ylabel(label_text)
     return _TextPlaceholder(label_text)
 
 
 def legend(*args: Any, **kwargs: Any) -> None:
+    """Show a legend for labeled series on the current figure.
+
+    The current implementation honors the presence of labels and accepts common
+    matplotlib positional and keyword arguments for compatibility, but it does
+    not yet expose the full legend layout and handle customization surface.
+    """
     _ = args  # Consume positional handles for compatibility
     _ = kwargs  # Accept keyword arguments without affecting backend yet
     frontend.legend()
@@ -52,6 +73,19 @@ def legend(*args: Any, **kwargs: Any) -> None:
 
 def grid(b: Any = None, which: Optional[str] = None, axis: Optional[str] = None,
          **kwargs: Any) -> None:
+    """Toggle grid lines on the current figure.
+
+    Parameters
+    ----------
+    b : bool, optional
+        Explicit grid state. When omitted, ``grid()`` toggles the current state
+        in the same spirit as matplotlib.
+    which, axis : str, optional
+        Accepted for compatibility and forwarded to the frontend state.
+    alpha, linestyle, ls : optional
+        Common matplotlib-style grid styling options. These affect supported
+        backends when that styling is represented in the emitted spec.
+    """
     global _GRID_STATE
 
     linestyle = kwargs.get("linestyle", kwargs.get("ls"))
@@ -71,16 +105,32 @@ def grid(b: Any = None, which: Optional[str] = None, axis: Optional[str] = None,
 
 
 def xscale(scale: str, *args: Any, **kwargs: Any) -> None:
+    """Set the x-axis scale.
+
+    Supported values currently include ``linear``, ``log``, ``pow``, ``sqrt``,
+    and ``symlog``. For symlog, ``linthresh`` or ``linthreshx`` is forwarded
+    when provided.
+    """
     threshold = kwargs.get("linthresh", kwargs.get("linthreshx"))
     frontend.set_xscale(scale, threshold)
 
 
 def yscale(scale: str, *args: Any, **kwargs: Any) -> None:
+    """Set the y-axis scale.
+
+    Supported values currently include ``linear``, ``log``, ``pow``, ``sqrt``,
+    and ``symlog``. For symlog, ``linthresh`` or ``linthreshy`` is forwarded
+    when provided.
+    """
     threshold = kwargs.get("linthresh", kwargs.get("linthreshy"))
     frontend.set_yscale(scale, threshold)
 
 
 def xlim(*args: Any, **kwargs: Any):
+    """Set or query the current x-axis limits.
+
+    Returns the active ``(xmin, xmax)`` tuple when called with no bounds.
+    """
     global _CURRENT_XLIM
     left = kwargs.get("xmin", kwargs.get("left"))
     right = kwargs.get("xmax", kwargs.get("right"))
@@ -111,6 +161,10 @@ def xlim(*args: Any, **kwargs: Any):
 
 
 def ylim(*args: Any, **kwargs: Any):
+    """Set or query the current y-axis limits.
+
+    Returns the active ``(ymin, ymax)`` tuple when called with no bounds.
+    """
     global _CURRENT_YLIM
     bottom = kwargs.get("ymin", kwargs.get("bottom"))
     top = kwargs.get("ymax", kwargs.get("top"))

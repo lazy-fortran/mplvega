@@ -1,4 +1,18 @@
-"""Core pyplot-shaped helpers."""
+"""Core pyplot-style helpers.
+
+These functions define the main public plotting flow:
+
+- create a figure with :func:`figure`
+- add line data with :func:`plot`
+- write the current figure with :func:`savefig`
+- optionally display it with :func:`show`
+
+The module keeps a small matplotlib-shaped surface, but the output contract is
+centered on file types rather than GUI backends. In practice that means
+``savefig("plot.vl.json")`` writes the canonical Vega-Lite spec,
+``savefig("plot.html")`` writes standalone browser-ready HTML, and image or PDF
+targets render through ``fortplot_render`` when it is available.
+"""
 
 from __future__ import annotations
 
@@ -91,7 +105,28 @@ def _resolve_data_argument(args: Tuple[Any, ...], data: Optional[Dict[str, Any]]
 
 
 def figure(*args: Any, **kwargs: Any) -> _FigurePlaceholder:
-    """Create a new figure with matplotlib-compatible signature."""
+    """Create a new figure and make it current.
+
+    Parameters
+    ----------
+    figsize : tuple[float, float], optional
+        Figure size in inches. The matplotlib default of ``(6.4, 4.8)`` is used
+        when no size is given.
+    dpi : float, optional
+        Figure dots-per-inch used to convert ``figsize`` into pixel dimensions
+        for the emitted spec.
+
+    Returns
+    -------
+    _FigurePlaceholder
+        Lightweight placeholder with ``get_size_inches()`` and ``get_dpi()``
+        methods for basic matplotlib compatibility.
+
+    Notes
+    -----
+    ``mplvega`` tracks one current figure at a time. Calling ``figure()`` resets
+    the current plotting state and starts a fresh spec.
+    """
 
     figsize = kwargs.pop("figsize", None)
     dpi = kwargs.pop("dpi", DEFAULT_DPI)
@@ -110,7 +145,42 @@ def figure(*args: Any, **kwargs: Any) -> _FigurePlaceholder:
 
 
 def plot(*args: Any, **kwargs: Any):
-    """Matplotlib-compatible plot wrapper."""
+    """Add a line plot to the current figure.
+
+    Supported call patterns mirror the common matplotlib forms:
+
+    - ``plot(y)``
+    - ``plot(x, y)``
+    - ``plot(x, y, fmt)``
+
+    Parameters
+    ----------
+    x, y : array-like
+        Data coordinates. When only one positional argument is provided it is
+        treated as ``y`` and ``x`` becomes ``range(len(y))``.
+    fmt : str, optional
+        Matplotlib-style format string. ``mplvega`` currently uses it only to
+        infer a line style such as ``"--"``, ``"-."``, ``":"``, or ``"-"``.
+    label : str, optional
+        Legend label for the line.
+    data : mapping, optional
+        Mapping used to resolve string field names in the positional arguments,
+        following the common matplotlib ``data=...`` pattern.
+    linestyle, ls : str, optional
+        Explicit line style. This overrides any style inferred from ``fmt``.
+
+    Returns
+    -------
+    list[_Line2DPlaceholder]
+        A single placeholder line object for matplotlib-style code that expects
+        ``plot()`` to return a list of artists.
+
+    Notes
+    -----
+    The current public surface is intentionally small. This wrapper focuses on
+    line data, labels, and line styles rather than the full matplotlib
+    ``Line2D`` styling matrix.
+    """
 
     if len(args) == 0:
         raise TypeError("plot() missing required data arguments")
@@ -150,7 +220,24 @@ def plot(*args: Any, **kwargs: Any):
 
 
 def savefig(fname: Any, *args: Any, **kwargs: Any) -> None:
-    """Save figure to disk, mirroring matplotlib signature."""
+    """Write the current figure to disk.
+
+    Parameters
+    ----------
+    fname : path-like or str
+        Output filename. The suffix selects the output mode:
+
+        - ``.vl.json`` or ``.json`` writes the Vega-Lite spec
+        - ``.html`` writes standalone HTML with an embedded Vega view
+        - ``.png``, ``.pdf``, and ``.svg`` render through ``fortplot_render``
+
+    Notes
+    -----
+    Image and PDF output require ``fortplot_render`` to be available through
+    ``MPLVEGA_FORTPLOT_RENDER``, ``FORTPLOT_RENDER``, or the user's ``PATH``.
+    Additional matplotlib-style ``savefig`` keyword arguments are currently
+    accepted for signature compatibility but are not interpreted here.
+    """
 
     if fname is None and args:
         fname = args[0]
@@ -161,7 +248,20 @@ def savefig(fname: Any, *args: Any, **kwargs: Any) -> None:
 
 
 def show(*args: Any, **kwargs: Any) -> None:
-    """Display figures with matplotlib-compatible parameters."""
+    """Display the current figure.
+
+    Parameters
+    ----------
+    block : bool, optional
+        Accepted for matplotlib compatibility. The current frontend forwards the
+        request to the active output path and defaults to ``True``.
+
+    Notes
+    -----
+    ``mplvega`` is primarily a spec-emitting frontend, so ``savefig()`` is the
+    main workflow. ``show()`` is provided for compatibility with pyplot-style
+    scripts.
+    """
 
     block = kwargs.pop("block", None)
     if block is None and args:

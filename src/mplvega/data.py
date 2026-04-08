@@ -1,4 +1,4 @@
-"""Scatter and histogram helpers."""
+"""Scatter and histogram helpers for pyplot-style code."""
 
 from ._state import frontend
 from .core import _ensure_array
@@ -23,51 +23,32 @@ def scatter(
     *,
     data=None,
 ):
-    """Create a scatter plot.
-    
+    """Add a scatter layer to the current figure.
+
     Parameters
     ----------
     x, y : array-like
-        The horizontal and vertical coordinates of the data points.
-        x and y must be the same size.
-    c : array-like, optional
-        Color values per-point (accepted for API compatibility).
-    s : array-like, optional
-        Marker sizes per-point (accepted for API compatibility).
+        Point coordinates. String field names are resolved when ``data=...`` is
+        provided.
     label : str, optional
-        Label for the plot, used in legend. Default is empty string.
-    marker : str, optional
-        Matplotlib-style marker specification (accepted for API compatibility).
-    alpha : float, optional
-        Global marker opacity in [0,1] (accepted for API compatibility).
-    edgecolors : str or tuple, optional
-        Edge color for markers (accepted for API compatibility).
-    linewidths : float or array-like, optional
-        Line width of marker edges (accepted for API compatibility).
-    markersize : float, optional
-        Marker size when using a uniform size (accepted for API compatibility).
-    color : tuple, optional
-        RGB triple in [0,1] for uniform color (accepted for API compatibility).
-    colormap : str, optional
-        Name of colormap when using scalar array `c` (accepted for API compatibility).
-    vmin, vmax : float, optional
-        Color scaling bounds (accepted for API compatibility).
-    show_colorbar : bool, optional
-        Whether to display a colorbar for scalar `c` (accepted for API compatibility).
-        
-    Examples
-    --------
-    Simple scatter plot:
-    
-    >>> import numpy as np
-    >>> x = np.random.random(50)
-    >>> y = np.random.random(50)
-    >>> fortplot.scatter(x, y)
-    
-    Scatter plot with labels:
-    
-    >>> fortplot.scatter(x, y, label='random points')
-    >>> fortplot.legend()
+        Legend label for the scatter layer.
+    data : mapping, optional
+        Mapping used to resolve string field names, matching the common
+        matplotlib ``data=...`` pattern.
+
+    Other Parameters
+    ----------------
+    c, s, marker, alpha, edgecolors, linewidths, markersize, color, colormap,
+    vmin, vmax, show_colorbar
+        Accepted for matplotlib compatibility. The current implementation
+        forwards only the core x/y data and label into the shared frontend state.
+
+    Notes
+    -----
+    ``mplvega`` keeps this function intentionally small. The accepted-but-not-
+    fully-mapped keyword arguments make it easier to run familiar pyplot code,
+    while the actual supported output is defined by the generated spec and
+    backends.
     """
     if data is not None:
         if isinstance(x, str) and x in data:
@@ -84,31 +65,24 @@ def scatter(
 
 
 def histogram(data, bins=None, density=False, label="", **kwargs):
-    """Create a histogram.
-    
+    """Add a histogram layer to the current figure.
+
     Parameters
     ----------
     data : array-like
-        Input data for the histogram.
-    bins : int, optional
-        Number of histogram bins (currently not implemented).
-    density : bool, optional
-        Whether to normalize the histogram (currently not implemented).
+        Input samples for the histogram. String field names are resolved when
+        ``data=...`` is provided through keyword arguments.
     label : str, optional
-        Label for the plot, used in legend. Default is empty string.
-        
-    Examples
-    --------
-    Simple histogram:
-    
-    >>> import numpy as np
-    >>> data = np.random.normal(0, 1, 1000)
-    >>> fortplot.histogram(data)
-    
-    Histogram with label:
-    
-    >>> fortplot.histogram(data, label='normal distribution')
-    >>> fortplot.legend()
+        Legend label for the histogram.
+
+    Other Parameters
+    ----------------
+    bins : int, optional
+        Accepted for compatibility. Bin customization is not yet mapped through
+        the current frontend.
+    density : bool, optional
+        Accepted for compatibility. Density normalization is not yet mapped
+        through the current frontend.
     """
     mapping = kwargs.get("data")
     dataset = data
@@ -120,6 +94,7 @@ def histogram(data, bins=None, density=False, label="", **kwargs):
 
 
 def hist(*args, **kwargs):
+    """Alias for :func:`histogram` using matplotlib-style naming."""
     if not args:
         raise TypeError("hist() missing required dataset")
     return histogram(args[0], **kwargs)
