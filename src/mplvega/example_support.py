@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 _MPLVEGA_VARIANTS = ("json", "html", "fortplot")
 _MPL_VARIANTS = ("mpl",)
+
+
+def _fortplot_available() -> bool:
+    """Return True when fortplot_render can be found."""
+    try:
+        from mplvega.fortplot import find_render_executable
+        return find_render_executable() is not None
+    except Exception:
+        return False
 
 
 def import_backend():
@@ -77,6 +87,10 @@ class ExampleOutputs:
         requested = args.variant or ["all"]
         if "all" in requested:
             variants = list(_MPLVEGA_VARIANTS if backend == "mplvega" else _MPL_VARIANTS)
+            if "fortplot" in variants and not _fortplot_available():
+                variants.remove("fortplot")
+                print("note: fortplot_render not found, skipping fortplot variant",
+                      file=sys.stderr)
         else:
             variants = []
             for variant in requested:
