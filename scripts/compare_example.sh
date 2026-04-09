@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run basic_plots with both backends and generate a side-by-side comparison page.
-set -euo pipefail
+set -exuo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXAMPLE=examples/python/basic_plots/basic_plots.py
