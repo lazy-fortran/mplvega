@@ -34,6 +34,23 @@ _MPL_COLORS = [
 _MPL_FONT = "DejaVu Sans, Arial, sans-serif"
 _MPL_GRID = "#b0b0b0"
 
+# Vega expression that formats log-scale tick values as 10 with Unicode
+# superscript exponents (e.g. 10⁻², 10⁰, 10¹), matching matplotlib's default.
+_LOG_LABEL_EXPR = (
+    "datum.value > 0 ? "
+    "'10' + "
+    "(round(log(datum.value) / LN10) < 0 ? '\u207b' : '') + "
+    "(abs(round(log(datum.value) / LN10)) >= 10 ? "
+    "substring('\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079', "
+    "floor(abs(round(log(datum.value) / LN10)) / 10) % 10, "
+    "floor(abs(round(log(datum.value) / LN10)) / 10) % 10 + 1) "
+    ": '') + "
+    "substring('\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079', "
+    "abs(round(log(datum.value) / LN10)) % 10, "
+    "abs(round(log(datum.value) / LN10)) % 10 + 1) "
+    ": ''"
+)
+
 
 def _points_to_pixels(points: float, dpi: float) -> float:
     """Convert matplotlib point units into rendered pixels."""
@@ -782,7 +799,9 @@ class MplVegaState:
         tick_values = self._tick_values(tick_domain, scale_type)
         if tick_values:
             axis["values"] = tick_values
-            if all(abs(value - round(value)) < 1.0e-9 for value in tick_values):
+            if scale_type == "log":
+                axis["labelExpr"] = _LOG_LABEL_EXPR
+            elif all(abs(value - round(value)) < 1.0e-9 for value in tick_values):
                 axis["format"] = "d"
         if axis:
             channel["axis"] = axis
