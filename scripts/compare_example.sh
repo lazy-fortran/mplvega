@@ -68,11 +68,6 @@ cat > "$OUTDIR/compare.html" << 'HEADER'
   .panel img { width: 100%; height: auto; display: block; border-radius: 4px; }
   .vega-panel { cursor: pointer; position: relative; }
   .vega-panel .vega-container { width: 100%; }
-  .vega-panel .click-hint {
-    position: absolute; top: .5rem; right: .5rem;
-    background: rgba(0,0,0,.55); color: #fff; font-size: .7rem;
-    padding: .2rem .5rem; border-radius: 4px; pointer-events: none;
-  }
   .json-toggle {
     display: inline-block; margin-top: .6rem; background: none; border: 1px solid #ccc;
     border-radius: 4px; padding: .3rem .8rem; font-size: .8rem; color: #555;
@@ -107,7 +102,7 @@ cat > "$OUTDIR/compare.html" << 'HEADER'
 </head>
 <body>
 <h1>matplotlib vs Vega-Lite</h1>
-<p class="subtitle">basic_plots example &mdash; click any Vega-Lite chart to open in the Vega Editor</p>
+<p class="subtitle">basic_plots example</p>
 HEADER
 
 for stem in "${STEMS[@]}"; do
@@ -131,7 +126,7 @@ print(spec.get('title', sys.argv[2]))
     </div>
     <div class="panel vega-panel" id="panel-${stem}">
       <h3>vega-lite</h3>
-      <span class="click-hint">click to open in Vega Editor</span>
+
       <div class="vega-container" id="vega-${stem}"></div>
     </div>
   </div>
@@ -140,6 +135,7 @@ print(spec.get('title', sys.argv[2]))
     <div class="json-drawer-header">
       <h3>Vega-Lite JSON</h3>
       <button class="copy-btn" id="copy-${stem}">Copy to clipboard</button>
+      <button class="copy-btn" id="editor-${stem}">Open in Vega Editor</button>
     </div>
     <pre id="json-${stem}"></pre>
   </div>
@@ -171,12 +167,13 @@ SCRIPT_IDS
   vegaEmbed(container, spec, {actions: false, renderer: 'svg'}).catch(function(e) {
     container.textContent = 'Vega error: ' + e;
   });
-  panel.addEventListener('click', function() {
+  var section = panel.closest('.figure-section');
+  section.querySelector('#editor-' + container.id.replace('vega-','')).addEventListener('click', function() {
     var url = 'https://vega.github.io/editor/#/url/vega-lite/'
       + encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(spec)))));
     window.open(url, '_blank');
   });
-  var copyBtn = panel.closest('.figure-section').querySelector('.copy-btn');
+  var copyBtn = section.querySelector('.copy-btn');
   copyBtn.addEventListener('click', function() {
     var btn = this;
     navigator.clipboard.writeText(pretty).then(function() {
