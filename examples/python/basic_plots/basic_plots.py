@@ -84,6 +84,7 @@ def hydrogen_wavefunction() -> None:
         plt.plot(r, P, label=f"n={n}, l={l}")
 
     plt.legend()
+    plt.grid(True)
     save("hydrogen_wavefunction")
 
 
