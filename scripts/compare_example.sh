@@ -73,6 +73,35 @@ cat > "$OUTDIR/compare.html" << 'HEADER'
     background: rgba(0,0,0,.55); color: #fff; font-size: .7rem;
     padding: .2rem .5rem; border-radius: 4px; pointer-events: none;
   }
+  .json-toggle {
+    display: inline-block; margin-top: .6rem; background: none; border: 1px solid #ccc;
+    border-radius: 4px; padding: .3rem .8rem; font-size: .8rem; color: #555;
+    cursor: pointer; transition: background .15s;
+  }
+  .json-toggle:hover { background: #eee; }
+  .json-drawer {
+    display: none; margin-top: .6rem; background: #fff; border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.1); overflow: hidden;
+  }
+  .json-drawer.open { display: block; }
+  .json-drawer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .5rem 1rem; border-bottom: 1px solid #eee;
+  }
+  .json-drawer-header h3 {
+    font-size: .85rem; text-transform: uppercase; letter-spacing: .05em;
+    color: #888; margin: 0;
+  }
+  .copy-btn {
+    background: #0969da; color: #fff; border: none; border-radius: 4px;
+    padding: .3rem .7rem; font-size: .75rem; cursor: pointer; transition: background .15s;
+  }
+  .copy-btn:hover { background: #0550ae; }
+  .copy-btn.copied { background: #1a7f37; }
+  .json-drawer pre {
+    margin: 0; padding: 1rem; overflow-x: auto; font-size: .78rem;
+    line-height: 1.45; background: #f6f8fa; max-height: 400px; overflow-y: auto;
+  }
   @media (max-width: 720px) { .compare-row { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -109,17 +138,35 @@ print(spec.get('title', sys.argv[2]))
       <div class="vega-container" id="vega-${stem}"></div>
     </div>
   </div>
+  <button class="json-toggle" onclick="this.nextElementSibling.classList.toggle('open')">Show / Hide JSON</button>
+  <div class="json-drawer" id="drawer-${stem}">
+    <div class="json-drawer-header">
+      <h3>Vega-Lite JSON</h3>
+      <button class="copy-btn" id="copy-${stem}">Copy to clipboard</button>
+    </div>
+    <pre id="json-${stem}"></pre>
+  </div>
 </div>
 <script>
 (function() {
   var spec = ${spec_json};
+  var pretty = JSON.stringify(spec, null, 2);
   var container = document.getElementById('vega-${stem}');
   var panel = document.getElementById('panel-${stem}');
+  document.getElementById('json-${stem}').textContent = pretty;
   vegaEmbed(container, spec, {actions: false, renderer: 'svg'});
   panel.addEventListener('click', function() {
     var url = 'https://vega.github.io/editor/#/url/vega-lite/'
       + encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(spec)))));
     window.open(url, '_blank');
+  });
+  document.getElementById('copy-${stem}').addEventListener('click', function() {
+    var btn = this;
+    navigator.clipboard.writeText(pretty).then(function() {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'Copy to clipboard'; btn.classList.remove('copied'); }, 1500);
+    });
   });
 })();
 </script>
