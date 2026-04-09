@@ -805,6 +805,26 @@ class MplVegaState:
             values.append(entry)
         return values
 
+    def _compact_layer_data(
+        self, layer: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Return (data_dict, transforms) using column-oriented compact format.
+
+        Instead of repeating field names for every point, stores each field as
+        a flat array and uses a Vega-Lite ``flatten`` transform to expand them
+        back into rows at render time.
+        """
+        points = layer.get("values", [])
+        if not points:
+            return {"values": []}, []
+        fields = [k for k in points[0] if isinstance(points[0][k], (int, float))
+                  or points[0][k] is None]
+        row: dict[str, Any] = {f: [p[f] for p in points] for f in fields}
+        label = layer.get("label")
+        if label:
+            row["series"] = label
+        return {"values": [row]}, [{"flatten": fields}]
+
     def _legend_series(self) -> list[tuple[str, str]]:
         """Return labeled series names and colors in plotting order."""
         series: list[tuple[str, str]] = []
@@ -997,7 +1017,10 @@ class MplVegaState:
 
         if len(self._layers) == 1 and not has_field_layer:
             layer = self._layers[0]
-            spec["data"] = {"values": self._values_for_layer(layer)}
+            data, transforms = self._compact_layer_data(layer)
+            spec["data"] = data
+            if transforms:
+                spec["transform"] = transforms
             spec["mark"] = self._styled_mark(layer)
             encoding: dict[str, Any] = {"x": x_enc, "y": y_enc}
             color = self._color_encoding(layer)
@@ -1023,11 +1046,15 @@ class MplVegaState:
             color = self._color_encoding(layer)
             if color is not None:
                 encoding["color"] = color
-            layers.append({
+            data, transforms = self._compact_layer_data(layer)
+            layer_entry: dict[str, Any] = {
                 "mark": self._styled_mark(layer),
                 "encoding": encoding,
-                "data": {"values": self._values_for_layer(layer)},
-            })
+                "data": data,
+            }
+            if transforms:
+                layer_entry["transform"] = transforms
+            layers.append(layer_entry)
 
         spec["encoding"] = {"x": x_enc, "y": y_enc}
         spec["layer"] = layers

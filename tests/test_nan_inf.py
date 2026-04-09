@@ -36,10 +36,10 @@ def test_json_output_uses_null_for_nan():
     try:
         plt.savefig(tmp)
         spec = json.loads(open(tmp).read())
-        values = spec['data']['values']
-        assert values[0] == {'x': 0.0, 'y': 1.0}
-        assert values[1] == {'x': 1.0, 'y': None}
-        assert values[2] == {'x': 2.0, 'y': 3.0}
+        row = spec['data']['values'][0]
+        assert row['x'] == [0.0, 1.0, 2.0]
+        assert row['y'] == [1.0, None, 3.0]
+        assert spec['transform'] == [{'flatten': ['x', 'y']}]
     finally:
         os.unlink(tmp)
 
@@ -73,12 +73,12 @@ def test_histogram_with_nan_inf():
         plt.savefig(tmp)
         spec = json.loads(open(tmp).read())
         # Histogram should only bin finite values (4 values: 1,2,3,4)
-        layer = spec.get('layer', [spec])
-        bar_layer = layer[0] if isinstance(layer, list) else layer
-        bar_values = bar_layer['data']['values']
-        for v in bar_values:
-            assert v['y'] >= 0
-            assert v['x'] is not None
+        # Compact format: single row with x/y arrays + flatten transform
+        row = spec['data']['values'][0]
+        for x_val in row['x']:
+            assert x_val is not None
+        for y_val in row['y']:
+            assert y_val >= 0
     finally:
         os.unlink(tmp)
 

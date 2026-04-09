@@ -90,6 +90,9 @@ def test_savefig_vl_json_uses_series_field_for_labels(tmp_path):
     assert spec["encoding"]["color"]["field"] == "series"
     assert spec["encoding"]["color"]["type"] == "nominal"
     assert spec["data"]["values"][0]["series"] == "quadratic"
+    assert spec["data"]["values"][0]["x"] == [1, 2, 3]
+    assert spec["data"]["values"][0]["y"] == [1, 4, 9]
+    assert spec["transform"] == [{"flatten": ["x", "y"]}]
 
 
 def test_savefig_vl_json_serializes_dash_patterns(tmp_path):
