@@ -121,9 +121,6 @@ spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
 print(spec.get('title', sys.argv[2]))
 " "$OUTDIR/$vl_json" "$stem")
 
-    # Read the JSON spec and inline it as a script tag
-    spec_json=$(cat "$OUTDIR/$vl_json")
-
     cat >> "$OUTDIR/compare.html" << SECTION
 <div class="figure-section">
   <div class="figure-title">$title</div>
@@ -149,18 +146,38 @@ print(spec.get('title', sys.argv[2]))
 </div>
 <script>
 (function() {
-  var spec = ${spec_json};
+  var spec =
+SECTION
+    # Write JSON on its own line, bypassing heredoc escaping
+    cat "$OUTDIR/$vl_json" >> "$OUTDIR/compare.html"
+    cat >> "$OUTDIR/compare.html" << 'SCRIPT_END'
+;
   var pretty = JSON.stringify(spec, null, 2);
-  var container = document.getElementById('vega-${stem}');
+  var container = document.querySelector('[id="' + spec.title + '"]') || null;
+  // find elements by stem embedded in IDs
+SCRIPT_END
+    cat >> "$OUTDIR/compare.html" << SCRIPT_IDS
+  container = document.getElementById('vega-${stem}');
   var panel = document.getElementById('panel-${stem}');
   document.getElementById('json-${stem}').textContent = pretty;
-  vegaEmbed(container, spec, {actions: false, renderer: 'svg'});
+SCRIPT_IDS
+    cat >> "$OUTDIR/compare.html" << 'SCRIPT_TAIL'
+  // Enable interactive zoom/pan via selection on first layer (avoids duplicate signal bug with top-level params)
+  if (spec.layer && spec.layer.length > 0) {
+    spec.layer[0].selection = {zoom: {type: 'interval', bind: 'scales'}};
+  } else {
+    spec.params = (spec.params || []).concat([{name: "zoom", select: "interval", bind: "scales"}]);
+  }
+  vegaEmbed(container, spec, {actions: false, renderer: 'svg'}).catch(function(e) {
+    container.textContent = 'Vega error: ' + e;
+  });
   panel.addEventListener('click', function() {
     var url = 'https://vega.github.io/editor/#/url/vega-lite/'
       + encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(spec)))));
     window.open(url, '_blank');
   });
-  document.getElementById('copy-${stem}').addEventListener('click', function() {
+  var copyBtn = panel.closest('.figure-section').querySelector('.copy-btn');
+  copyBtn.addEventListener('click', function() {
     var btn = this;
     navigator.clipboard.writeText(pretty).then(function() {
       btn.textContent = 'Copied!';
@@ -170,7 +187,7 @@ print(spec.get('title', sys.argv[2]))
   });
 })();
 </script>
-SECTION
+SCRIPT_TAIL
 done
 
 cat >> "$OUTDIR/compare.html" << 'FOOTER'

@@ -1078,16 +1078,17 @@ class MplVegaState:
                 layers.append(entry)
                 continue
 
-            encoding = {"x": x_enc, "y": y_enc}
+            encoding: dict[str, Any] = {}
             color = self._color_encoding(layer)
             if color is not None:
                 encoding["color"] = color
             data, transforms = self._compact_layer_data(layer)
             layer_entry: dict[str, Any] = {
                 "mark": self._styled_mark(layer),
-                "encoding": encoding,
                 "data": data,
             }
+            if encoding:
+                layer_entry["encoding"] = encoding
             if transforms:
                 layer_entry["transform"] = transforms
             layers.append(layer_entry)
