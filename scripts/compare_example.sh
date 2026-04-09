@@ -10,7 +10,7 @@ rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR/mpl" "$OUTDIR/vega"
 
 echo "==> Running matplotlib backend..."
-MPLVEGA_EXAMPLE_BACKEND=mpl uv run "$EXAMPLE" --outdir "$OUTDIR/mpl"
+MPLVEGA_EXAMPLE_BACKEND=mpl uv run "$EXAMPLE" --outdir "$OUTDIR/mpl" --mpl-dpi 400
 
 echo "==> Running mplvega (vega-lite) backend..."
 uv run "$EXAMPLE" --outdir "$OUTDIR/vega"
