@@ -778,7 +778,8 @@ class MplVegaState:
                 dash = _dash_pattern(self._grid_linestyle)
                 if dash is not None:
                     axis["gridDash"] = dash
-        tick_values = self._tick_values(domain, scale_type)
+        tick_domain = domain if domain is not None else self._data_bounds(field)
+        tick_values = self._tick_values(tick_domain, scale_type)
         if tick_values:
             axis["values"] = tick_values
             if all(abs(value - round(value)) < 1.0e-9 for value in tick_values):
@@ -909,8 +910,12 @@ class MplVegaState:
 
     def _tick_values(self, domain: tuple[float, float] | None,
                      scale_type: str | None) -> list[float] | None:
-        """Return matplotlib-style major ticks for linear axes when available."""
-        if domain is None or scale_type not in (None, "", "linear"):
+        """Return matplotlib-style major ticks for the given axis scale."""
+        if domain is None:
+            return None
+        if scale_type == "log":
+            return self._log_tick_values(domain)
+        if scale_type not in (None, "", "linear"):
             return None
         try:
             from matplotlib.ticker import AutoLocator
@@ -918,6 +923,17 @@ class MplVegaState:
             return None
         values = AutoLocator().tick_values(domain[0], domain[1]).tolist()
         return [float(value) for value in values]
+
+    @staticmethod
+    def _log_tick_values(domain: tuple[float, float]) -> list[float] | None:
+        """Return powers-of-10 tick values spanning *domain*."""
+        lo, hi = domain
+        if lo <= 0 or hi <= 0:
+            return None
+        import math
+        exp_lo = math.floor(math.log10(lo))
+        exp_hi = math.ceil(math.log10(hi))
+        return [10.0 ** e for e in range(exp_lo, exp_hi + 1)]
 
     def _styled_mark(self, layer: dict[str, Any]) -> dict[str, Any]:
         """Return one explicit mark object with matplotlib-like defaults."""
