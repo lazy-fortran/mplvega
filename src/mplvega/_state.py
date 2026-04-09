@@ -219,6 +219,7 @@ def _spec_config(legend_orient: str, dpi: float) -> dict[str, Any]:
             "padding": 4,
             "orient": legend_orient,
             "symbolStrokeWidth": line_width,
+            "symbolSize": round((point_diameter * 3) ** 2, 2),
         },
         "line": {"strokeWidth": line_width},
         "point": {"filled": True, "size": point_diameter * point_diameter},
