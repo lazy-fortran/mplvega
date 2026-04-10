@@ -982,9 +982,15 @@ class MplVegaState:
             "height": self._height,
         }
         if self._style == "mpl":
+            pad = _mpl_padding(self._width, self._height)
+            # Vega-Lite: width/height = data rectangle, padding is added.
+            # We want total canvas = self._width x self._height, so the
+            # data rectangle = total - padding.
+            spec["width"] = self._width - pad["left"] - pad["right"]
+            spec["height"] = self._height - pad["top"] - pad["bottom"]
             spec["autosize"] = {"type": "none", "contains": "padding"}
             spec["config"] = _spec_config(self._legend_orient(), self._dpi)
-            spec["padding"] = _mpl_padding(self._width, self._height)
+            spec["padding"] = pad
         if self._title:
             spec["title"] = self._title
 
