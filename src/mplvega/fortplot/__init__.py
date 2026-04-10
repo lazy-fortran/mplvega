@@ -65,7 +65,12 @@ def find_render_executable() -> str | None:
     return None
 
 
-def render_spec(spec: dict[str, Any], filename: str, executable: str | None = None) -> None:
+def render_spec(
+    spec: dict[str, Any],
+    filename: str,
+    executable: str | None = None,
+    style: str | None = None,
+) -> None:
     """Render one in-memory spec with ``fortplot_render``.
 
     Parameters
@@ -78,6 +83,9 @@ def render_spec(spec: dict[str, Any], filename: str, executable: str | None = No
     executable : str, optional
         Explicit path to ``fortplot_render``. When omitted, the executable is
         located with :func:`find_render_executable`.
+    style : str, optional
+        Visual style passed via ``--style`` to ``fortplot_render``.
+        ``"mpl"`` or ``"vegalite"``.
     """
     renderer = executable or find_render_executable()
     if renderer is None:
@@ -86,8 +94,11 @@ def render_spec(spec: dict[str, Any], filename: str, executable: str | None = No
             "FORTPLOT_RENDER, or install fortplot_render to render PNG output."
         )
     payload = json.dumps(spec, allow_nan=False)
+    command = [renderer, "-o", filename]
+    if style:
+        command.extend(["--style", style])
     result = subprocess.run(
-        [renderer, "-o", filename],
+        command,
         input=payload,
         capture_output=True,
         text=True,
