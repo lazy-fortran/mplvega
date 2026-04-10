@@ -697,10 +697,14 @@ def _mask_index(px: float, py: float, xmin: float, xmax: float, ymin: float, yma
     return (row, col)
 
 
+_VALID_STYLES = frozenset({"mpl", "vegalite"})
+
+
 class MplVegaState:
     """Mutable pyplot-like state that lowers into one canonical Vega-Lite spec."""
 
     def __init__(self) -> None:
+        self._style = "mpl"
         self._reset()
 
     def _reset(self) -> None:
@@ -974,12 +978,13 @@ class MplVegaState:
         y_enc = self._channel("y", self._ylabel, self._ylim, self._yscale)
         spec: dict[str, Any] = {
             "$schema": VL_SCHEMA,
-            "autosize": {"type": "none", "contains": "padding"},
-            "config": _spec_config(self._legend_orient(), self._dpi),
             "width": self._width,
             "height": self._height,
-            "padding": _mpl_padding(self._width, self._height),
         }
+        if self._style == "mpl":
+            spec["autosize"] = {"type": "none", "contains": "padding"}
+            spec["config"] = _spec_config(self._legend_orient(), self._dpi)
+            spec["padding"] = _mpl_padding(self._width, self._height)
         if self._title:
             spec["title"] = self._title
 
@@ -1032,6 +1037,14 @@ class MplVegaState:
         spec["encoding"] = {"x": x_enc, "y": y_enc}
         spec["layer"] = layers
         return spec
+
+    def set_style(self, style: str) -> None:
+        """Set rendering mode: 'mpl' or 'vegalite'."""
+        if style not in _VALID_STYLES:
+            raise ValueError(
+                f"unknown style {style!r}, expected one of {sorted(_VALID_STYLES)}"
+            )
+        self._style = style
 
     def figure(self, width: int = 640, height: int = 480, dpi: float = 100.0) -> None:
         self._reset()
@@ -1174,7 +1187,7 @@ class MplVegaState:
         if target.suffix.lower() == ".json" or str(target).endswith(".vl.json"):
             target.write_text(json.dumps(spec, indent=2, allow_nan=False), encoding="utf-8")
             return
-        render_spec(spec, str(target))
+        render_spec(spec, str(target), style=self._style)
 
     def show_figure(self, blocking: bool = False) -> bool:
         _ = blocking

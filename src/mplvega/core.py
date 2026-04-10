@@ -104,6 +104,18 @@ def _resolve_data_argument(args: Tuple[Any, ...], data: Optional[Dict[str, Any]]
     return tuple(resolved)
 
 
+def set_style(style: str) -> None:
+    """Set the rendering style for all subsequent figures.
+
+    Parameters
+    ----------
+    style : str
+        ``"mpl"`` for matplotlib-like output (default), or ``"vegalite"``
+        for Vega-Lite native styling.
+    """
+    frontend.set_style(style)
+
+
 def figure(*args: Any, **kwargs: Any) -> _FigurePlaceholder:
     """Create a new figure and make it current.
 

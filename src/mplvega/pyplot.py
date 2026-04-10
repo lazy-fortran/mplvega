@@ -28,7 +28,7 @@ from .axes import (
     ylim,
     yscale,
 )
-from .core import figure, plot, savefig, show
+from .core import figure, plot, savefig, set_style, show
 
 def contour(*args, **kwargs):
     """Draw contour lines on the current figure."""
@@ -72,7 +72,7 @@ def hist(*args, **kwargs):
     return _hist(*args, **kwargs)
 
 __all__ = [
-    'figure', 'plot', 'savefig', 'show',
+    'figure', 'plot', 'savefig', 'set_style', 'show',
     'title', 'xlabel', 'ylabel', 'legend', 'grid', 'xlim', 'ylim', 'xscale',
     'yscale',
     'contour', 'contourf', 'streamplot', 'pcolormesh',
