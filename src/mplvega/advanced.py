@@ -40,8 +40,8 @@ def contour(X, Y, Z, levels=None, *, data=None, **kwargs):
     Notes
     -----
     2D ``X`` and ``Y`` inputs produced by ``numpy.meshgrid`` are accepted. The
-    frontend extracts the 1D coordinate axes and transposes ``Z`` into the
-    column-major layout expected by the downstream Fortran renderer.
+    frontend extracts the 1D coordinate axes and preserves the conventional
+    ``Z[y, x]`` shape expected by the downstream Fortran renderer.
     """
     X = _ensure_array(_resolve_from_data(X, data))
     Y = _ensure_array(_resolve_from_data(Y, data))
@@ -57,8 +57,8 @@ def contour(X, Y, Z, levels=None, *, data=None, **kwargs):
     else:
         y = Y
 
-    # Transpose Z for Fortran column-major order
-    z = Z.T.copy()
+    # Matrix shape and memory serialization order are independent.
+    z = Z.copy()
 
     if levels is None:
         frontend.contour(x, y, z)
@@ -100,10 +100,10 @@ def contourf(X, Y, Z, levels=None, *, data=None, **kwargs):
     else:
         y = Y
 
-    # Transpose Z for Fortran column-major order
-    z = Z.T.copy()
+    # Matrix shape and memory serialization order are independent.
+    z = Z.copy()
 
-    cmap = None
+    cmap = "viridis"
     if "cmap" in kwargs:
         cmap = kwargs.get("cmap")
     elif "colormap" in kwargs:
@@ -226,8 +226,8 @@ def pcolormesh(X, Y, C, cmap=None, vmin=None, vmax=None,
     else:
         raise ValueError("X and Y must have the same dimensionality (both 1D or both 2D)")
     
-    # Transpose C for Fortran column-major order
-    c = C.T.copy()
+    # The renderer indexes scalar fields as C[y, x].
+    c = C.copy()
     
     # Set default colormap if not specified
     if cmap is None:

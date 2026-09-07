@@ -62,18 +62,47 @@ class _FigurePlaceholder:
 
 
 class _Line2DPlaceholder:
-    """Minimal matplotlib Line2D placeholder for compatibility."""
+    """A line handle connected to its plotted data and legend label."""
 
-    __slots__ = ("_label",)
-
-    def __init__(self, label: str = "") -> None:
-        self._label = label
+    def __init__(self, layers, x, y, properties) -> None:
+        self._layers = layers
+        self._properties = properties
+        self._x = x.copy()
+        self._y = y.copy()
 
     def get_label(self) -> str:
-        return self._label
+        return self._layers[0].get("label", "") if self._layers else ""
 
     def set_label(self, label: str) -> None:
-        self._label = label
+        for layer in self._layers:
+            layer["label"] = str(label)
+
+    def get_color(self):
+        return self._properties["color"]
+
+    def get_linestyle(self):
+        return self._properties["linestyle"]
+
+    def get_marker(self):
+        return self._properties["marker"]
+
+    def get_linewidth(self):
+        return self._properties["linewidth"]
+
+    def get_markersize(self):
+        return self._properties["markersize"]
+
+    def get_alpha(self):
+        return self._properties["alpha"]
+
+    def get_xdata(self, orig=True):
+        return self._x.copy()
+
+    def get_ydata(self, orig=True):
+        return self._y.copy()
+
+    def get_data(self, orig=True):
+        return self.get_xdata(orig), self.get_ydata(orig)
 
 
 def _ensure_array(obj: Any):
@@ -157,78 +186,43 @@ def figure(*args: Any, **kwargs: Any) -> _FigurePlaceholder:
 
 
 def plot(*args: Any, **kwargs: Any):
-    """Add a line plot to the current figure.
+    """Plot scalar, vector, or column data and return one handle per series.
 
-    Supported call patterns mirror the common matplotlib forms:
-
-    - ``plot(y)``
-    - ``plot(x, y)``
-    - ``plot(x, y, fmt)``
-
-    Parameters
-    ----------
-    x, y : array-like
-        Data coordinates. When only one positional argument is provided it is
-        treated as ``y`` and ``x`` becomes ``range(len(y))``.
-    fmt : str, optional
-        Matplotlib-style format string. ``mplvega`` currently uses it only to
-        infer a line style such as ``"--"``, ``"-."``, ``":"``, or ``"-"``.
-    label : str, optional
-        Legend label for the line.
-    data : mapping, optional
-        Mapping used to resolve string field names in the positional arguments,
-        following the common matplotlib ``data=...`` pattern.
-    linestyle, ls : str, optional
-        Explicit line style. This overrides any style inferred from ``fmt``.
-
-    Returns
-    -------
-    list[_Line2DPlaceholder]
-        A single placeholder line object for matplotlib-style code that expects
-        ``plot()`` to return a list of artists.
-
-    Notes
-    -----
-    The current public surface is intentionally small. This wrapper focuses on
-    line data, labels, and line styles rather than the full matplotlib
-    ``Line2D`` styling matrix.
+    Accepts ``plot(y)``, ``plot(y, fmt)``, ``plot(x, y, fmt)``, repeated
+    ``x, y, fmt`` groups, and named columns through ``data=``. Two-dimensional
+    arrays produce one line per column, as in Matplotlib.
     """
+    from ._plot_args import plot_groups
+    from ._line_style import line_style, mark_properties, render_color
 
-    if len(args) == 0:
-        raise TypeError("plot() missing required data arguments")
-
-    data = kwargs.pop("data", None)
-    args = _resolve_data_argument(args, data)
-
-    fmt = None
-    if len(args) == 1:
-        y = _ensure_array(args[0])
-        x = _ensure_array(range(len(y)))
-    else:
-        x = _ensure_array(args[0])
-        y = _ensure_array(args[1])
-        if len(args) >= 3 and isinstance(args[2], str):
-            fmt = args[2]
-
-    label = kwargs.pop("label", "")
-    linestyle = kwargs.pop("linestyle", kwargs.pop("ls", None))
-    if linestyle is None and fmt is not None:
-        if "--" in fmt:
-            linestyle = "--"
-        elif "-." in fmt:
-            linestyle = "-."
-        elif ":" in fmt:
-            linestyle = ":"
-        elif "-" in fmt:
-            linestyle = "-"
-        else:
-            linestyle = "None"
-    if linestyle is None:
-        linestyle = "-"
-
-    label_str = "" if label is None else str(label)
-    frontend.plot(x, y, label_str, linestyle)
-    return [_Line2DPlaceholder(label_str)]
+    groups = list(plot_groups(args, kwargs.pop("data", None)))
+    label = kwargs.pop("label", None)
+    labels = [label] * len(groups)
+    if label is not None and not isinstance(label, str) and isinstance(label, Iterable):
+        labels = list(label)
+        if len(labels) != len(groups):
+            raise ValueError("label must have the same length as the number of datasets")
+    styles = [line_style(fmt, kwargs) for _, _, fmt, _ in groups]
+    result = []
+    for (x, y, fmt, data_label), series_label, properties in zip(groups, labels, styles):
+        if series_label is None:
+            series_label = data_label
+        label_text = "" if series_label is None else str(series_label)
+        color = properties["color"]
+        if color is None:
+            color = frontend._next_color()
+        properties["color"] = color
+        layers = []
+        for mark in mark_properties(properties, frontend._dpi):
+            if mark is not None:
+                layer = frontend.plot(x, y, label_text, mark=mark, color=render_color(color))
+                layers.append(layer)
+        if not layers:
+            layer = frontend.plot(x, y, label_text, color=render_color(color))
+            layer["hidden"] = True
+            layers.append(layer)
+        result.append(_Line2DPlaceholder(layers, x, y, properties))
+    return result
 
 
 def savefig(fname: Any, *args: Any, **kwargs: Any) -> None:

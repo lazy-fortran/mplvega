@@ -24,6 +24,8 @@ import json
 import math
 import os
 import subprocess
+import tempfile
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -43,10 +45,12 @@ def main() -> None:
         slug = script.parent.name
         out_dir = output_root / slug
         out_dir.mkdir(parents=True, exist_ok=True)
-        row = compare_example(repo_root, script, out_dir)
-        if row:
-            results.append(row)
+        try:
+            results.extend(compare_example(repo_root, script, out_dir))
+        except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+            results.append({"example": slug, "mpl_ssim": None, "error": str(exc)})
 
+    (output_root / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print_table(results)
     check_threshold(results, args.threshold)
 
@@ -77,51 +81,61 @@ def require_tools() -> None:
         sys.exit(1)
 
 
-def compare_example(
-    repo_root: Path, script: Path, out_dir: Path
-) -> dict[str, Any] | None:
-    slug = script.parent.name
+def compare_example(repo_root: Path, script: Path, out_dir: Path) -> list[dict[str, Any]]:
+    """Compare every generated figure, using fresh files for each invocation."""
+    with tempfile.TemporaryDirectory(prefix="render-", dir=out_dir) as directory:
+        fresh = Path(directory)
+        run_example(repo_root, script, fresh, backend="mpl", mpl_exts=("png", "pdf"))
+        run_example(repo_root, script, fresh, backend="mplvega", variants=("json", "fortplot"))
+        specs = sorted(fresh.glob("*.vl.json"))
+        if not specs:
+            raise RuntimeError(f"{script}: no Vega-Lite output was generated")
+        expected = {path.name[:-8] for path in specs}
+        references = {path.name[:-8] for path in fresh.glob("*.mpl.png")}
+        if expected != references:
+            raise RuntimeError(f"{script}: figure sets differ: {expected} != {references}")
+        results = []
+        for spec_path in specs:
+            stem = spec_path.name[:-8]
+            vega_png = fresh / f"{stem}.vega.png"
+            render_vega_png(spec_path, vega_png)
+            vega_style = fresh / f"{stem}.vega_style.png"
+            render_fortplot(spec_path, vega_style, style="vegalite")
+            for extension in ("png", "pdf"):
+                reference = fresh / f"{stem}.mpl.{extension}"
+                actual = fresh / f"{stem}.{extension}"
+                if extension == "pdf":
+                    reference = rasterize_pdf(reference)
+                    actual = rasterize_pdf(actual)
+                row = {"example": f"{script.parent.name}/{stem}/{extension}",
+                       "reference": str(out_dir / reference.name),
+                       "actual": str(out_dir / actual.name)}
+                row.update(score_pair(reference, actual, "mpl"))
+                if extension == "png":
+                    row.update(score_pair(vega_png, vega_style, "vega"))
+                results.append(row)
+        for artifact in fresh.iterdir():
+            shutil.move(str(artifact), out_dir / artifact.name)
+        return results
 
-    mpl_png = out_dir / "ref_mpl.png"
-    run_example(repo_root, script, out_dir, backend="mpl", mpl_exts=("png",))
-    mpl_candidates = list(out_dir.glob("*.mpl.png"))
-    if mpl_candidates:
-        mpl_png = mpl_candidates[0]
 
-    run_example(repo_root, script, out_dir, backend="mplvega", variants=("json", "fortplot"))
-    json_candidates = list(out_dir.glob("*.vl.json"))
-    if not json_candidates:
-        return None
-    spec_path = json_candidates[0]
-    stem = spec_path.name[:-8]
+def score_pair(reference: Path, actual: Path, prefix: str) -> dict[str, Any]:
+    """Retain failed comparisons in the report while checking other artifacts."""
+    try:
+        scores = compute_scores(reference, actual)
+        return {f"{prefix}_ssim": scores["ssim"],
+                f"{prefix}_blur_rmse": scores["blur_rmse"]}
+    except (OSError, ValueError) as exc:
+        return {f"{prefix}_ssim": None, f"{prefix}_error": str(exc)}
 
-    vega_png = out_dir / f"{stem}.vega.png"
-    render_vega_png(spec_path, vega_png)
 
-    fortplot_mpl_png = out_dir / f"{stem}.png"
-
-    fortplot_vega_png = out_dir / f"{stem}.vega_style.png"
-    render_fortplot(spec_path, fortplot_vega_png, style="vegalite")
-
-    row: dict[str, Any] = {"example": slug}
-
-    if mpl_png.exists() and fortplot_mpl_png.exists():
-        scores = compute_scores(mpl_png, fortplot_mpl_png)
-        row["mpl_ssim"] = scores["ssim"]
-        row["mpl_blur_rmse"] = scores["blur_rmse"]
-    else:
-        row["mpl_ssim"] = None
-        row["mpl_blur_rmse"] = None
-
-    if vega_png.exists() and fortplot_vega_png.exists():
-        scores = compute_scores(vega_png, fortplot_vega_png)
-        row["vega_ssim"] = scores["ssim"]
-        row["vega_blur_rmse"] = scores["blur_rmse"]
-    else:
-        row["vega_ssim"] = None
-        row["vega_blur_rmse"] = None
-
-    return row
+def rasterize_pdf(path: Path) -> Path:
+    """Rasterize both PDF backends at the same 100 DPI without resizing."""
+    output = path.with_suffix(".pdf.png")
+    subprocess.run(["pdftoppm", "-r", "100", "-png", "-singlefile",
+                    str(path), str(output.with_suffix(""))],
+                   check=True, capture_output=True, timeout=60)
+    return output
 
 
 def run_example(
@@ -144,11 +158,8 @@ def run_example(
     for ext in mpl_exts:
         command.extend(["--mpl-ext", ext])
 
-    try:
-        subprocess.run(command, cwd=repo_root, env=env, check=True,
-                        capture_output=True, timeout=60)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        print(f"  warning: {script.parent.name} failed ({exc})", file=sys.stderr)
+    subprocess.run(command, cwd=repo_root, env=env, check=True,
+                   capture_output=True, timeout=60)
 
 
 def render_vega_png(spec_path: Path, output: Path) -> None:
@@ -165,16 +176,16 @@ def render_fortplot(spec_path: Path, output: Path, style: str = "mpl") -> None:
 
     renderer = find_render_executable()
     if renderer is None:
-        return
+        raise RuntimeError("fortplot_render not found")
     payload = spec_path.read_text(encoding="utf-8")
     subprocess.run(
         [renderer, "--style", style, "-o", str(output)],
-        input=payload, capture_output=True, text=True, timeout=30, check=False,
+        input=payload, capture_output=True, text=True, timeout=30, check=True,
     )
 
 
 def _align_images(path_a: Path, path_b: Path):
-    """Load two images and resize to common dimensions if needed."""
+    """Load an image pair and reject unequal canvas dimensions."""
     from PIL import Image
     import numpy as np
 
@@ -182,15 +193,7 @@ def _align_images(path_a: Path, path_b: Path):
     img_b = Image.open(path_b).convert("RGB")
 
     if img_a.size != img_b.size:
-        print(
-            f"  note: size mismatch {path_a.name} {img_a.size} vs "
-            f"{path_b.name} {img_b.size}, resizing",
-            file=sys.stderr,
-        )
-        target = (min(img_a.width, img_b.width),
-                  min(img_a.height, img_b.height))
-        img_a = img_a.resize(target, Image.LANCZOS)
-        img_b = img_b.resize(target, Image.LANCZOS)
+        raise ValueError(f"canvas size mismatch: {path_a} {img_a.size} vs {path_b} {img_b.size}")
 
     return np.asarray(img_a, dtype=float), np.asarray(img_b, dtype=float)
 
@@ -269,11 +272,15 @@ def print_table(results: list[dict[str, Any]]) -> None:
 
 
 def check_threshold(results: list[dict[str, Any]], threshold: float) -> None:
-    failures = []
+    failures = [] if results else ["no comparisons were produced"]
     for row in results:
         for key in ("mpl_ssim", "vega_ssim"):
+            if key == "vega_ssim" and key not in row:
+                continue
             score = row.get(key)
-            if score is not None and score < threshold:
+            if score is None or not math.isfinite(score):
+                failures.append(f"{row['example']}/{key}: missing or nonfinite score")
+            elif score < threshold:
                 failures.append(f"{row['example']}/{key}: {score:.4f}")
     if failures:
         print(f"FAIL: {len(failures)} example(s) below SSIM threshold {threshold}:")

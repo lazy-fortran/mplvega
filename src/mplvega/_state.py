@@ -366,9 +366,10 @@ def _field_matrix(field: dict[str, Any], key: str) -> tuple[Any, Any, Any]:
     x = np.asarray(field["x"], dtype=float)
     y = np.asarray(field["y"], dtype=float)
     flat = np.asarray(field[key], dtype=float)
-    nx = int(field["nrows"])
-    ny = int(field["ncols"])
-    matrix = flat.reshape((nx, ny), order="F").T
+    shape = (int(field["nrows"]), int(field["ncols"]))
+    matrix = flat.reshape(shape, order="F")
+    if key in ("u", "v"):
+        matrix = matrix.T
     return x, y, matrix
 
 
@@ -708,6 +709,7 @@ class MplVegaState:
         self._reset()
 
     def _reset(self) -> None:
+        self._figure_token = object()
         self._width = 640
         self._height = 480
         self._dpi = 100.0
@@ -715,6 +717,7 @@ class MplVegaState:
         self._xlabel: str | None = None
         self._ylabel: str | None = None
         self._layers: list[dict[str, Any]] = []
+        self._color_index = 0
         self._show_grid = False
         self._grid_alpha: float | None = None
         self._grid_linestyle: str | None = None
@@ -801,6 +804,8 @@ class MplVegaState:
     def _values_for_layer(self, layer: dict[str, Any]) -> list[dict[str, Any]]:
         """Attach shared per-layer metadata directly to row values."""
         values: list[dict[str, Any]] = []
+        if layer.get("hidden"):
+            return values
         label = layer.get("label")
         for point in layer["values"]:
             entry = dict(point)
@@ -842,7 +847,9 @@ class MplVegaState:
 
     def _next_color(self) -> str:
         """Return the next matplotlib cycle color."""
-        return _MPL_COLORS[len(self._layers) % len(_MPL_COLORS)]
+        color = _MPL_COLORS[self._color_index % len(_MPL_COLORS)]
+        self._color_index += 1
+        return color
 
     def _line_width(self) -> float:
         """Return the default matplotlib line width in rendered pixels."""
@@ -853,7 +860,7 @@ class MplVegaState:
         diameter = _points_to_pixels(6.0, self._dpi)
         return diameter * diameter
 
-    def _data_bounds(self, field: str) -> tuple[float, float] | None:
+    def _data_bounds(self, field: str, positive_only: bool = False) -> tuple[float, float] | None:
         """Return raw data bounds for one axis."""
         values: list[float] = []
         for layer in self._layers:
@@ -869,6 +876,8 @@ class MplVegaState:
             if axis_values is None:
                 continue
             values.extend(float(value) for value in axis_values)
+        if positive_only:
+            values = [value for value in values if value > 0]
         if not values:
             return None
         return (min(values), max(values))
@@ -878,6 +887,8 @@ class MplVegaState:
         """Return explicit scale limits using matplotlib default margins."""
         if limits is not None:
             return limits
+        if scale_type == "log":
+            return self._log_domain(field)
         if scale_type not in (None, "", "linear"):
             return None
         bounds = self._data_bounds(field)
@@ -886,10 +897,31 @@ class MplVegaState:
         lo, hi = bounds
         span = hi - lo
         if span <= 0.0:
-            delta = 1.0 if lo == 0.0 else abs(lo) * 0.05
-        else:
-            delta = span * 0.05
-        return (lo - delta, hi + delta)
+            expansion = 0.05 if lo == 0.0 else abs(lo) * 0.05
+            lo, hi = lo - expansion, hi + expansion
+        delta = (hi - lo) * 0.05
+        lower, upper = lo - delta, hi + delta
+        for layer in self._layers:
+            axis = layer.get("fortplotField", {}).get(field, [])
+            if axis:
+                if min(axis) == lo:
+                    lower = lo
+                if max(axis) == hi:
+                    upper = hi
+        return (lower, upper)
+
+    def _log_domain(self, field: str) -> tuple[float, float]:
+        """Apply positive-data limits and default margins in log coordinates."""
+        lo, hi = self._data_bounds(field, positive_only=True) or (1.0, 10.0)
+        if lo == hi:
+            exponent = math.log10(lo)
+            lower, upper = math.floor(exponent), math.ceil(exponent)
+            if lower == upper:
+                lower, upper = lower - 1, upper + 1
+            lo, hi = 10.0 ** lower, 10.0 ** upper
+        loglo, loghi = math.log10(lo), math.log10(hi)
+        delta = (loghi - loglo) * 0.05
+        return (10.0 ** (loglo - delta), 10.0 ** (loghi + delta))
 
     def _tick_values(self, domain: tuple[float, float] | None,
                      scale_type: str | None) -> list[float] | None:
@@ -916,6 +948,8 @@ class MplVegaState:
             mark.setdefault("clip", True)
             mark.setdefault("strokeWidth", self._line_width())
         if mark_type == "point":
+            if self._style == "mpl":
+                mark.setdefault("opacity", 1.0)
             mark.setdefault("filled", True)
             mark.setdefault("size", self._point_area())
         return mark
@@ -1055,15 +1089,17 @@ class MplVegaState:
         self._height = height
         self._dpi = float(dpi)
 
-    def plot(self, x: Any, y: Any, label: str = "", linestyle: str = "-") -> None:
+    def plot(self, x: Any, y: Any, label: str = "", linestyle: str = "-",
+             *, mark=None, color=None) -> dict[str, Any]:
         layer = {
-            "mark": _line_mark(linestyle),
+            "mark": _line_mark(linestyle) if mark is None else mark,
             "values": self._make_xy_values(x, y),
-            "color": self._next_color(),
+            "color": self._next_color() if color is None else color,
         }
         if label:
             layer["label"] = label
         self._layers.append(layer)
+        return layer
 
     def scatter(self, x: Any, y: Any, label: str = "") -> None:
         layer = {
