@@ -202,6 +202,7 @@ def _spec_config(legend_orient: str, dpi: float) -> dict[str, Any]:
             "padding": 4,
             "orient": legend_orient,
             "symbolStrokeWidth": line_width,
+            "symbolSize": round((point_diameter * 3) ** 2, 2),
         },
         "line": {"strokeWidth": line_width},
         "point": {"filled": True, "size": point_diameter * point_diameter},
@@ -239,6 +240,7 @@ def _browser_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "width": browser.get("width", 640),
         "height": browser.get("height", 480),
         "layer": [],
+        "encoding": {"x": x_enc, "y": y_enc},
     }
     if spec.get("title"):
         translated["title"] = spec["title"]
@@ -785,11 +787,16 @@ class MplVegaState:
                 dash = _dash_pattern(self._grid_linestyle)
                 if dash is not None:
                     axis["gridDash"] = dash
-        tick_values = self._tick_values(domain, scale_type)
+        tick_domain = domain if domain is not None else self._data_bounds(field)
+        tick_values = self._tick_values(tick_domain, scale_type)
         if tick_values:
             axis["values"] = tick_values
-            if all(abs(value - round(value)) < 1.0e-9 for value in tick_values):
+            if scale_type != "log" and all(
+                float(value).is_integer() for value in tick_values
+            ):
                 axis["format"] = "d"
+            elif scale_type != "log":
+                axis["format"] = ".15~g"
         if axis:
             channel["axis"] = axis
         scale: dict[str, Any] = {}
@@ -813,6 +820,26 @@ class MplVegaState:
                 entry["series"] = label
             values.append(entry)
         return values
+
+    def _compact_layer_data(
+        self, layer: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Return (data_dict, transforms) using column-oriented compact format.
+
+        Instead of repeating field names for every point, stores each field as
+        a flat array and uses a Vega-Lite ``flatten`` transform to expand them
+        back into rows at render time.
+        """
+        points = self._values_for_layer(layer)
+        if not points:
+            return {"values": []}, []
+        fields = [k for k in points[0] if isinstance(points[0][k], (int, float))
+                  or points[0][k] is None]
+        row: dict[str, Any] = {f: [p[f] for p in points] for f in fields}
+        label = layer.get("label")
+        if label:
+            row["series"] = label
+        return {"values": [row]}, [{"flatten": fields}]
 
     def _legend_series(self) -> list[tuple[str, str]]:
         """Return labeled series names and colors in plotting order."""
@@ -925,8 +952,12 @@ class MplVegaState:
 
     def _tick_values(self, domain: tuple[float, float] | None,
                      scale_type: str | None) -> list[float] | None:
-        """Return matplotlib-style major ticks for linear axes when available."""
-        if domain is None or scale_type not in (None, "", "linear"):
+        """Return matplotlib-style major ticks for the given axis scale."""
+        if domain is None:
+            return None
+        if scale_type == "log":
+            return self._log_tick_values(domain)
+        if scale_type not in (None, "", "linear"):
             return None
         try:
             from matplotlib.ticker import AutoLocator
@@ -934,6 +965,17 @@ class MplVegaState:
             return None
         values = AutoLocator().tick_values(domain[0], domain[1]).tolist()
         return [float(value) for value in values]
+
+    @staticmethod
+    def _log_tick_values(domain: tuple[float, float]) -> list[float] | None:
+        """Return powers-of-10 tick values spanning *domain*."""
+        lo, hi = sorted(domain)
+        if not (math.isfinite(lo) and math.isfinite(hi)) or lo <= 0:
+            return None
+        exp_lo = max(-323, math.ceil(math.log10(lo)))
+        exp_hi = min(308, math.floor(math.log10(hi)))
+        ticks = [10.0 ** e for e in range(exp_lo, exp_hi + 1)]
+        return [value for value in ticks if lo <= value <= hi] or None
 
     def _styled_mark(self, layer: dict[str, Any]) -> dict[str, Any]:
         """Return one explicit mark object with matplotlib-like defaults."""
@@ -1039,7 +1081,10 @@ class MplVegaState:
 
         if len(self._layers) == 1 and not has_field_layer:
             layer = self._layers[0]
-            spec["data"] = {"values": self._values_for_layer(layer)}
+            data, transforms = self._compact_layer_data(layer)
+            spec["data"] = data
+            if transforms:
+                spec["transform"] = transforms
             spec["mark"] = self._styled_mark(layer)
             encoding: dict[str, Any] = {"x": x_enc, "y": y_enc}
             color = self._color_encoding(layer)
@@ -1061,15 +1106,20 @@ class MplVegaState:
                 layers.append(entry)
                 continue
 
-            encoding = {"x": x_enc, "y": y_enc}
+            encoding: dict[str, Any] = {}
             color = self._color_encoding(layer)
             if color is not None:
                 encoding["color"] = color
-            layers.append({
+            data, transforms = self._compact_layer_data(layer)
+            layer_entry: dict[str, Any] = {
                 "mark": self._styled_mark(layer),
-                "encoding": encoding,
-                "data": {"values": self._values_for_layer(layer)},
-            })
+                "data": data,
+            }
+            if encoding:
+                layer_entry["encoding"] = encoding
+            if transforms:
+                layer_entry["transform"] = transforms
+            layers.append(layer_entry)
 
         spec["encoding"] = {"x": x_enc, "y": y_enc}
         spec["layer"] = layers

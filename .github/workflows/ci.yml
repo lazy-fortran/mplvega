@@ -38,11 +38,8 @@ jobs:
           fetch-depth: 1
       - name: Build fortplot_render
         run: |
-          cd fortplot
-          fpm run --target fortplot_render -- --help >/dev/null
-          renderer_path=$(find build -path '*/app/fortplot_render' -type f | head -n 1)
-          test -n "$renderer_path"
-          echo "MPLVEGA_FORTPLOT_RENDER=$GITHUB_WORKSPACE/fortplot/$renderer_path" >> "$GITHUB_ENV"
+          renderer=$(./scripts/build_fortplot_render.sh fortplot)
+          echo "MPLVEGA_FORTPLOT_RENDER=$renderer" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

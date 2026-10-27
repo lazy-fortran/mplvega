@@ -68,6 +68,12 @@ class ExampleOutputs:
             choices=("png", "pdf", "svg"),
             help="File extension to use for matplotlib-rendered outputs.",
         )
+        parser.add_argument(
+            "--mpl-dpi",
+            type=int,
+            default=100,
+            help="DPI for matplotlib-rendered raster outputs (default: 100).",
+        )
         args = parser.parse_args()
 
         example_path = Path(example_file).resolve()
@@ -87,7 +93,8 @@ class ExampleOutputs:
         requested = args.variant or ["all"]
         if "all" in requested:
             variants = list(_MPLVEGA_VARIANTS if backend == "mplvega" else _MPL_VARIANTS)
-            if "fortplot" in variants and not _fortplot_available():
+            if ("fortplot" in variants and "fortplot" not in requested
+                    and not _fortplot_available()):
                 variants.remove("fortplot")
                 print("note: fortplot_render not found, skipping fortplot variant",
                       file=sys.stderr)
@@ -120,6 +127,7 @@ class ExampleOutputs:
         self.variants = tuple(variants)
         self.fortplot_exts = tuple(deduped_render_exts)
         self.mpl_exts = tuple(deduped_mpl_exts)
+        self.mpl_dpi = args.mpl_dpi
 
     def save_current_figure(self, plt_module, stem: str) -> list[Path]:
         """Save the current figure in each requested output variant."""
@@ -140,7 +148,7 @@ class ExampleOutputs:
         if self.backend == "mpl" and "mpl" in self.variants:
             for ext in self.mpl_exts:
                 path = self.output_dir / f"{stem}.mpl.{ext}"
-                plt_module.savefig(path)
+                plt_module.savefig(path, dpi=self.mpl_dpi)
                 created.append(path)
         return created
 
