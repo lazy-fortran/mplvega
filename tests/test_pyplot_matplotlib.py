@@ -37,9 +37,9 @@ def test_plot_series_match_matplotlib(args):
     emitted = frontend.to_spec()
     layers = emitted.get("layer", [emitted]) if actual else []
     for layer, theirs in zip(layers, reference):
-        np.testing.assert_array_equal([p["x"] for p in layer["data"]["values"]],
+        np.testing.assert_array_equal(layer["data"]["values"][0]["x"],
                                       theirs.get_xdata())
-        np.testing.assert_array_equal([p["y"] for p in layer["data"]["values"]],
+        np.testing.assert_array_equal(layer["data"]["values"][0]["y"],
                                       theirs.get_ydata())
 
 

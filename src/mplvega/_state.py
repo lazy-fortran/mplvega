@@ -34,23 +34,6 @@ _MPL_COLORS = [
 _MPL_FONT = "DejaVu Sans, Arial, sans-serif"
 _MPL_GRID = "#b0b0b0"
 
-# Vega expression that formats log-scale tick values as 10 with Unicode
-# superscript exponents (e.g. 10⁻², 10⁰, 10¹), matching matplotlib's default.
-_LOG_LABEL_EXPR = (
-    "datum.value > 0 ? "
-    "'10' + "
-    "(round(log(datum.value) / LN10) < 0 ? '\u207b' : '') + "
-    "(abs(round(log(datum.value) / LN10)) >= 10 ? "
-    "substring('\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079', "
-    "floor(abs(round(log(datum.value) / LN10)) / 10) % 10, "
-    "floor(abs(round(log(datum.value) / LN10)) / 10) % 10 + 1) "
-    ": '') + "
-    "substring('\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079', "
-    "abs(round(log(datum.value) / LN10)) % 10, "
-    "abs(round(log(datum.value) / LN10)) % 10 + 1) "
-    ": ''"
-)
-
 
 def _points_to_pixels(points: float, dpi: float) -> float:
     """Convert matplotlib point units into rendered pixels."""
@@ -257,6 +240,7 @@ def _browser_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "width": browser.get("width", 640),
         "height": browser.get("height", 480),
         "layer": [],
+        "encoding": {"x": x_enc, "y": y_enc},
     }
     if spec.get("title"):
         translated["title"] = spec["title"]
@@ -807,10 +791,12 @@ class MplVegaState:
         tick_values = self._tick_values(tick_domain, scale_type)
         if tick_values:
             axis["values"] = tick_values
-            if scale_type == "log":
-                axis["labelExpr"] = _LOG_LABEL_EXPR
-            elif all(abs(value - round(value)) < 1.0e-9 for value in tick_values):
+            if scale_type != "log" and all(
+                float(value).is_integer() for value in tick_values
+            ):
                 axis["format"] = "d"
+            elif scale_type != "log":
+                axis["format"] = ".15~g"
         if axis:
             channel["axis"] = axis
         scale: dict[str, Any] = {}
@@ -844,7 +830,7 @@ class MplVegaState:
         a flat array and uses a Vega-Lite ``flatten`` transform to expand them
         back into rows at render time.
         """
-        points = layer.get("values", [])
+        points = self._values_for_layer(layer)
         if not points:
             return {"values": []}, []
         fields = [k for k in points[0] if isinstance(points[0][k], (int, float))
@@ -983,13 +969,13 @@ class MplVegaState:
     @staticmethod
     def _log_tick_values(domain: tuple[float, float]) -> list[float] | None:
         """Return powers-of-10 tick values spanning *domain*."""
-        lo, hi = domain
-        if lo <= 0 or hi <= 0:
+        lo, hi = sorted(domain)
+        if not (math.isfinite(lo) and math.isfinite(hi)) or lo <= 0:
             return None
-        import math
-        exp_lo = math.floor(math.log10(lo))
-        exp_hi = math.ceil(math.log10(hi))
-        return [10.0 ** e for e in range(exp_lo, exp_hi + 1)]
+        exp_lo = max(-323, math.ceil(math.log10(lo)))
+        exp_hi = min(308, math.floor(math.log10(hi)))
+        ticks = [10.0 ** e for e in range(exp_lo, exp_hi + 1)]
+        return [value for value in ticks if lo <= value <= hi] or None
 
     def _styled_mark(self, layer: dict[str, Any]) -> dict[str, Any]:
         """Return one explicit mark object with matplotlib-like defaults."""

@@ -93,7 +93,8 @@ class ExampleOutputs:
         requested = args.variant or ["all"]
         if "all" in requested:
             variants = list(_MPLVEGA_VARIANTS if backend == "mplvega" else _MPL_VARIANTS)
-            if "fortplot" in variants and not _fortplot_available():
+            if ("fortplot" in variants and "fortplot" not in requested
+                    and not _fortplot_available()):
                 variants.remove("fortplot")
                 print("note: fortplot_render not found, skipping fortplot variant",
                       file=sys.stderr)

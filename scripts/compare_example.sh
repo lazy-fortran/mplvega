@@ -3,6 +3,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 EXAMPLE=examples/python/basic_plots/basic_plots.py
 OUTDIR="$REPO_ROOT/output/compare/basic_plots"
 
@@ -10,10 +11,10 @@ rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR/mpl" "$OUTDIR/vega"
 
 echo "==> Running matplotlib backend..."
-MPLVEGA_EXAMPLE_BACKEND=mpl uv run "$EXAMPLE" --outdir "$OUTDIR/mpl" --mpl-dpi 400
+MPLVEGA_EXAMPLE_BACKEND=mpl uv run --extra compare "$EXAMPLE" --outdir "$OUTDIR/mpl" --mpl-dpi 400
 
 echo "==> Running mplvega (vega-lite) backend..."
-uv run "$EXAMPLE" --outdir "$OUTDIR/vega"
+MPLVEGA_EXAMPLE_BACKEND=mplvega uv run --extra compare "$EXAMPLE" --outdir "$OUTDIR/vega" --variant json --variant html
 
 # Discover figure stems from the vega-lite JSON files
 STEMS=()
@@ -160,7 +161,9 @@ SCRIPT_IDS
     cat >> "$OUTDIR/compare.html" << 'SCRIPT_TAIL'
   // Enable interactive zoom/pan via selection on first layer (avoids duplicate signal bug with top-level params)
   if (spec.layer && spec.layer.length > 0) {
-    spec.layer[0].selection = {zoom: {type: 'interval', bind: 'scales'}};
+    spec.layer[0].params = (spec.layer[0].params || []).concat([
+      {name: 'zoom', select: 'interval', bind: 'scales'}
+    ]);
   } else {
     spec.params = (spec.params || []).concat([{name: "zoom", select: "interval", bind: "scales"}]);
   }
@@ -169,11 +172,27 @@ SCRIPT_IDS
   });
   var section = panel.closest('.figure-section');
   section.querySelector('#editor-' + container.id.replace('vega-','')).addEventListener('click', function() {
-    var url = 'https://vega.github.io/editor/#/url/vega-lite/'
-      + encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(spec)))));
-    window.open(url, '_blank');
+    var editorOrigin = 'https://vega.github.io';
+    var editor = window.open(editorOrigin + '/editor/', '_blank');
+    if (!editor) return;
+    var timer;
+    function received(event) {
+      if (event.source !== editor || event.origin !== editorOrigin) return;
+      clearInterval(timer);
+      window.removeEventListener('message', received);
+    }
+    window.addEventListener('message', received);
+    var attempts = 0;
+    timer = setInterval(function() {
+      if (editor.closed || ++attempts > 60) {
+        clearInterval(timer);
+        window.removeEventListener('message', received);
+        return;
+      }
+      editor.postMessage({mode: 'vega-lite', spec: JSON.stringify(spec)}, editorOrigin);
+    }, 500);
   });
-  var copyBtn = section.querySelector('.copy-btn');
+  var copyBtn = section.querySelector('#copy-' + container.id.replace('vega-',''));
   copyBtn.addEventListener('click', function() {
     var btn = this;
     navigator.clipboard.writeText(pretty).then(function() {
